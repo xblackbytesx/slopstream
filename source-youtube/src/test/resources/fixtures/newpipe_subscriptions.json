@@ -1,0 +1,7 @@
+{"app_version":"0.29.1","app_version_int":1010,"subscriptions":[
+ {"service_id":0,"url":"https://www.youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa","name":"Fixture Channel"},
+ {"service_id":0,"url":"https://www.youtube.com/channel/UCaaaaaaaaaaaaaaaaaaaaaa","name":"Duplicate"},
+ {"service_id":0,"url":"https://www.youtube.com/@somehandle","name":"Handle Only"},
+ {"service_id":1,"url":"https://soundcloud.com/someone","name":"SoundCloud"},
+ {"service_id":0,"url":"https://www.youtube.com/channel/UCbbbbbbbbbbbbbbbbbbbbbb","name":"Second"}
+]}

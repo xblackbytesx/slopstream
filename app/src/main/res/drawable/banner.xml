@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android TV launcher banner, 320x180dp. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path android:fillColor="#FF0E0F12" android:pathData="M0,0 H320 V180 H0 Z" />
+    <path
+        android:fillColor="#FF5EEAD4"
+        android:pathData="M36,64 C36,60.6 39.7,58.5 42.6,60.3 L75.6,80.7 C78.5,82.5 78.5,86.7 75.6,88.5 L42.6,108.9 C39.7,110.7 36,108.6 36,105.2 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF5EEAD4"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.6"
+        android:pathData="M24,124 C34,118 44,130 54,124 C64,118 74,130 84,124" />
+    <!-- "SLOPSTREAM" set as simple strokes so the banner needs no font. -->
+    <group android:scaleX="0.8" android:scaleY="0.8" android:translateX="100" android:translateY="73">
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#FFEDEFF3"
+            android:strokeWidth="5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M18,4 H6 C2,4 0,6 0,10 C0,14 2,16 6,16 H12 C16,16 18,18 18,22 C18,26 16,28 12,28 H0 M26,4 V28 H42 M58,4 C51,4 48,9 48,16 C48,23 51,28 58,28 C65,28 68,23 68,16 C68,9 65,4 58,4 Z M76,28 V4 H86 C91,4 93,7 93,10.5 C93,14 91,17 86,17 H76 M117,4 H105 C101,4 99,6 99,10 C99,14 101,16 105,16 H111 C115,16 117,18 117,22 C117,26 115,28 111,28 H99 M123,4 H143 M133,4 V28 M150,28 V4 H160 C165,4 167,7 167,10.5 C167,14 165,17 160,17 H150 M159,17 L167,28 M190,4 H174 V28 H190 M174,16 H186 M196,28 L205,4 L214,28 M199.5,19 H210.5 M222,28 V4 L232,18 L242,4 V28" />
+    </group>
+</vector>

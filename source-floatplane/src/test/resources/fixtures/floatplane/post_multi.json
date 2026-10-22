@@ -1,0 +1,11 @@
+{
+  "id": "postSubChan", "guid": "postSubChan", "title": "Posted on a sub-channel, by id", "type": "blogPost",
+  "releaseDate": "2026-10-21T09:30:00.000Z", "isAccessible": true,
+  "attachmentOrder": ["vidM2", "vidM1"],
+  "videoAttachments": [
+    {"id": "vidM1", "title": "Part two", "type": "video", "duration": 500, "isProcessing": false, "isAccessible": true, "primaryBlogPost": "postSubChan"},
+    {"id": "vidM2", "title": "Part one", "type": "video", "duration": 700, "isProcessing": true, "isAccessible": true, "primaryBlogPost": "postSubChan"}
+  ],
+  "audioAttachments": [], "pictureAttachments": [], "galleryAttachments": [],
+  "userInteraction": []
+}

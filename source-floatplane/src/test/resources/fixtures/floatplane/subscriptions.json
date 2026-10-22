@@ -1,0 +1,25 @@
+[
+ {
+  "startDate": "2026-01-01T00:00:00.000Z",
+  "endDate": "2027-01-01T00:00:00.000Z",
+  "paymentID": 1,
+  "interval": "year",
+  "paymentCancelled": false,
+  "plan": {
+   "id": "plan1",
+   "title": "Supporter"
+  },
+  "creator": "creatorA"
+ },
+ {
+  "startDate": null,
+  "endDate": null,
+  "paymentID": null,
+  "interval": "month",
+  "plan": {
+   "id": "plan2",
+   "title": "Supporter Plus"
+  },
+  "creator": "creatorA"
+ }
+]

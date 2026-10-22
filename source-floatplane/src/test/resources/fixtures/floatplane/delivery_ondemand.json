@@ -1,0 +1,178 @@
+{
+ "groups": [
+  {
+   "origins": [
+    {
+     "url": "https://cdn.example/"
+    }
+   ],
+   "variants": [
+    {
+     "name": "360-avc1",
+     "label": "360p",
+     "url": "/Videos/vidS1/360.mp4/chunk.m3u8?token=TOKEN",
+     "mimeType": "application/x-mpegURL",
+     "order": 360000,
+     "hidden": false,
+     "enabled": true,
+     "meta": {
+      "video": {
+       "codec": "avc1.64001e",
+       "codecSimple": "avc1",
+       "bitrate": {
+        "average": 255886
+       },
+       "width": 640,
+       "height": 360,
+       "isHdr": false,
+       "fps": 29.97,
+       "mimeType": "video/MP2T"
+      },
+      "audio": {
+       "codec": "mp4a.40.2",
+       "bitrate": {
+        "average": 93340,
+        "maximum": 93340
+       },
+       "channelCount": 2,
+       "samplerate": 48000,
+       "mimeType": "video/MP2T"
+      }
+     }
+    },
+    {
+     "name": "1080-avc1",
+     "label": "1080p",
+     "url": "/Videos/vidS1/1080.mp4/chunk.m3u8?token=TOKEN",
+     "mimeType": "application/x-mpegURL",
+     "order": 1080000,
+     "hidden": false,
+     "enabled": true,
+     "meta": {
+      "video": {
+       "codec": "avc1.64002a",
+       "codecSimple": "avc1",
+       "bitrate": {
+        "average": 4448573
+       },
+       "width": 1920,
+       "height": 1080,
+       "isHdr": false,
+       "fps": 59.94,
+       "mimeType": "video/MP2T"
+      },
+      "audio": {
+       "codec": "mp4a.40.2",
+       "bitrate": {
+        "average": 93340,
+        "maximum": 93340
+       },
+       "channelCount": 2,
+       "samplerate": 48000,
+       "mimeType": "video/MP2T"
+      }
+     }
+    },
+    {
+     "name": "2160-avc1",
+     "label": "2160p",
+     "url": "/Videos/vidS1/2160.mp4/chunk.m3u8?token=TOKEN",
+     "mimeType": "application/x-mpegURL",
+     "order": 2160000,
+     "hidden": false,
+     "enabled": true,
+     "meta": {
+      "video": {
+       "codec": "avc1.640034",
+       "codecSimple": "avc1",
+       "bitrate": {
+        "average": 15904212
+       },
+       "width": 3840,
+       "height": 2160,
+       "isHdr": false,
+       "fps": 59.94,
+       "mimeType": "video/MP2T"
+      },
+      "audio": {
+       "codec": "mp4a.40.2",
+       "bitrate": {
+        "average": 93340,
+        "maximum": 93340
+       },
+       "channelCount": 2,
+       "samplerate": 48000,
+       "mimeType": "video/MP2T"
+      }
+     }
+    },
+    {
+     "name": "1440-avc1",
+     "label": "1440p",
+     "url": "/Videos/vidS1/1440.mp4/chunk.m3u8?token=TOKEN",
+     "mimeType": "application/x-mpegURL",
+     "order": 1440000,
+     "hidden": true,
+     "enabled": true,
+     "meta": {
+      "video": {
+       "codec": "avc1.640032",
+       "codecSimple": "avc1",
+       "bitrate": {
+        "average": 9000000
+       },
+       "width": 2560,
+       "height": 1440,
+       "isHdr": false,
+       "fps": 59.94,
+       "mimeType": "video/MP2T"
+      },
+      "audio": {
+       "codec": "mp4a.40.2",
+       "bitrate": {
+        "average": 93340,
+        "maximum": 93340
+       },
+       "channelCount": 2,
+       "samplerate": 48000,
+       "mimeType": "video/MP2T"
+      }
+     }
+    },
+    {
+     "name": "720-avc1",
+     "label": "720p",
+     "url": "",
+     "mimeType": "application/x-mpegURL",
+     "order": 720000,
+     "hidden": false,
+     "enabled": true,
+     "meta": {
+      "video": {
+       "codec": "avc1.640020",
+       "codecSimple": "avc1",
+       "bitrate": {
+        "average": 736634
+       },
+       "width": 1280,
+       "height": 720,
+       "isHdr": false,
+       "fps": 29.97,
+       "mimeType": "video/MP2T"
+      },
+      "audio": {
+       "codec": "mp4a.40.2",
+       "bitrate": {
+        "average": 93340,
+        "maximum": 93340
+       },
+       "channelCount": 2,
+       "samplerate": 48000,
+       "mimeType": "video/MP2T"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

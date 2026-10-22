@@ -1,0 +1,10 @@
+.git
+.gradle
+.kotlin
+build
+*/build
+build-output
+.idea
+*.iml
+local.properties
+.secrets

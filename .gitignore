@@ -1,0 +1,86 @@
+# --- Gradle / Android build output ---
+.gradle/
+build/
+build-output/
+.kotlin/
+.cxx/
+.externalNativeBuild/
+captures/
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+local.properties
+
+# CI staging dir for release APKs
+dist/
+
+# --- IDE / assistant tooling ---
+# Local scratch directories various editors and coding assistants create in the
+# repo root. None of them belong in the history.
+.idea/
+.vscode/
+.fleet/
+.claude/
+.cursor/
+.aider*
+.continue/
+.windsurf/
+*.iml
+*.ipr
+*.iws
+
+# --- Signing ---
+# The committed debug keystore is the only exception, so every debug build signs
+# identically and reinstalls never hit "signatures do not match".
+*.jks
+*.keystore
+!keystore/debug.keystore
+keystore/*.base64
+keystore.properties
+*.p12
+*.pem
+
+# --- Secrets / local config ---
+.env
+.env.*
+!.env.example
+secrets.properties
+# Floatplane spike token cache (make smoke-floatplane)
+.secrets/
+
+# --- Your own data ---
+# Subscription and history exports from NewPipe, Google Takeout or Slopstream
+# itself. They name every channel you follow, so keep them out of the history
+# even when they get dropped into the working tree to test an import.
+NewPipeData-*.zip
+newpipe*.zip
+newpipe*.json
+newpipe.db
+subscriptions.csv
+subscriptions*.json
+slopstream-*.json
+Takeout/
+takeout-*.zip
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+# Test fixtures are synthetic or trimmed, and are the one place exports may live.
+!**/src/test/resources/fixtures/**
+
+# Captured logcat from a diagnostic run.
+run.txt
+*.logcat
+
+# --- OS noise ---
+.DS_Store
+Thumbs.db
+*~
+*.swp
+
+# --- Misc ---
+*.hprof
+*.log

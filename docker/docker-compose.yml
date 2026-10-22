@@ -1,0 +1,40 @@
+name: slopstream
+
+x-gradle: &gradle
+  image: slopstream-build
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  volumes:
+    - ..:/src/slopstream
+    - gradle-cache:/opt/gradle-home
+
+services:
+  build:
+    <<: *gradle
+    command: ["bash", "docker/run-gradle.sh", ":app:assembleDebug"]
+  build-release:
+    <<: *gradle
+    command: ["bash", "docker/run-gradle.sh", ":app:assembleRelease"]
+  test:
+    <<: *gradle
+    command: ["bash", "docker/run-gradle.sh", ":core:test", ":source-youtube:test", ":source-floatplane:test", ":app:testDebugUnitTest"]
+  smoke:
+    <<: *gradle
+    command: ["bash", "docker/run-gradle.sh", ":source-youtube:smokeTest"]
+  smoke-floatplane:
+    <<: *gradle
+    environment: [FP_CLIENT_ID, FP_BEARER, FP_SESSION]
+    command: ["bash", "docker/run-gradle.sh", ":source-floatplane:smokeTest"]
+  screenshots:
+    <<: *gradle
+    command: ["bash", "docker/run-gradle.sh", ":app:testDebugUnitTest", "--tests", "*ScreenshotTest*", "--rerun-tasks", "-PscreenshotsDir=/src/slopstream/build-output/screenshots"]
+  lint:
+    <<: *gradle
+    command: ["bash", "docker/run-gradle.sh", ":app:lintDebug"]
+  keystore:
+    <<: *gradle
+    command: ["bash", "docker/make-keystore.sh"]
+
+volumes:
+  gradle-cache:
