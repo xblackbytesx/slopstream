@@ -41,18 +41,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import androidx.navigation.toRoute
 import com.xblackbytesx.slopstream.core.SourceAuthException
-import com.xblackbytesx.slopstream.data.FloatplaneAccount
+import com.xblackbytesx.slopstream.core.SourceKey
+import com.xblackbytesx.slopstream.data.SiteSignIn
 import com.xblackbytesx.slopstream.data.importer.LanImportServer
-import com.xblackbytesx.slopstream.floatplane.Floatplane
-import com.xblackbytesx.slopstream.floatplane.SessionAuthorizer
+import com.xblackbytesx.slopstream.floatplane.FloatplaneSite
 import com.xblackbytesx.slopstream.ui.components.ListRow
 import com.xblackbytesx.slopstream.ui.components.PrimaryButton
 import com.xblackbytesx.slopstream.ui.components.ScreenHeader
 import com.xblackbytesx.slopstream.ui.components.SecondaryButton
+import com.xblackbytesx.slopstream.ui.nav.SignInRoute
 import com.xblackbytesx.slopstream.ui.theme.LocalDims
 import com.xblackbytesx.slopstream.ui.theme.LocalIsTv
 import com.xblackbytesx.slopstream.ui.theme.Palette
@@ -85,20 +88,25 @@ data class SignInState(
 )
 
 /**
- * Floatplane sign-in until Slopstream has its own OAuth client id: on Floatplane's own login
- * page in a web view, or with the website session pasted from a computer that is signed in.
+ * Sign-in to a Floatplane-platform site (Floatplane, Sauce+) until Slopstream has its own OAuth
+ * client id: on the site's own login page in a web view, or with the website session pasted
+ * from a computer that is signed in.
  */
 @HiltViewModel
 class SignInViewModel @Inject constructor(
     @ApplicationContext context: Context,
-    private val account: FloatplaneAccount,
+    savedState: SavedStateHandle,
+    private val signIn: SiteSignIn,
 ) : ViewModel() {
+    val key: SourceKey = SourceKey.fromId(savedState.toRoute<SignInRoute>().source)
+    val site: FloatplaneSite = signIn.site(key)
+
     private val _state = MutableStateFlow(SignInState())
     val state: StateFlow<SignInState> = _state.asStateFlow()
     private val attempt = Mutex()
 
     private val serverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val server = LanImportServer(context, PASTE_PAGE) { bytes ->
+    private val server = LanImportServer(context, pastePage(site)) { bytes ->
         when (val r = submit(bytes.decodeToString())) {
             null -> "Signed in. You can close this page."
             else -> r
@@ -115,7 +123,7 @@ class SignInViewModel @Inject constructor(
 
     /**
      * The web view's session after a page load. Before the login it is an anonymous session,
-     * which Floatplane refuses quietly; this keeps trying until one is signed in.
+     * which the site refuses quietly; this keeps trying until one is signed in.
      */
     fun tryWebSession(sid: String) {
         if (_state.value.username != null || attempt.isLocked) return
@@ -123,14 +131,14 @@ class SignInViewModel @Inject constructor(
             attempt.withLock {
                 if (_state.value.username != null) return@withLock
                 try {
-                    val name = account.signIn(sid)
+                    val name = signIn.signIn(key, sid)
                     _state.update { it.copy(username = name, error = null) }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: SourceAuthException) {
                     // Not signed in yet: wait for the next page.
                 } catch (e: Exception) {
-                    _state.update { it.copy(error = e.message ?: "Could not reach Floatplane") }
+                    _state.update { it.copy(error = e.message ?: "Could not reach ${site.name}") }
                 }
             }
         }
@@ -140,17 +148,17 @@ class SignInViewModel @Inject constructor(
     suspend fun submit(text: String): String? = attempt.withLock {
         _state.update { it.copy(busy = true, error = null) }
         val error = try {
-            val name = account.signIn(text)
+            val name = signIn.signIn(key, text)
             _state.update { it.copy(username = name) }
             null
         } catch (e: CancellationException) {
             throw e
         } catch (e: SourceAuthException) {
-            "Floatplane does not accept that session: it is signed out or expired. Sign in on floatplane.com and copy it again."
+            "${site.name} does not accept that session: it is signed out or expired. Sign in on ${site.host} and copy it again."
         } catch (e: IllegalArgumentException) {
             e.message
         } catch (e: Exception) {
-            e.message ?: "Could not reach Floatplane"
+            e.message ?: "Could not reach ${site.name}"
         }
         _state.update { it.copy(busy = false, error = error) }
         error
@@ -165,24 +173,24 @@ class SignInViewModel @Inject constructor(
         serverScope.cancel()
     }
 
-    companion object {
-        private val PASTE_PAGE = """
+    private companion object {
+        fun pastePage(site: FloatplaneSite) = """
             <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-            <title>Slopstream: Floatplane sign-in</title>
+            <title>Slopstream: ${site.name} sign-in</title>
             <style>${LanImportServer.PAGE_STYLE}</style></head><body>
-            <h1>Sign in to Floatplane on Slopstream</h1>
+            <h1>Sign in to ${site.name} on Slopstream</h1>
             <div class="card"><ol>
-              <li>On this computer, sign in at <code>www.floatplane.com</code>.</li>
-              <li>Open the developer tools (F12): Storage (Firefox) or Application (Chrome), then Cookies, then <code>https://www.floatplane.com</code>.</li>
-              <li>Copy the value of <code>sails.sid</code> and paste it below.</li>
+              <li>On this computer, sign in at <code>${site.host}</code>.</li>
+              <li>Open the developer tools (F12): Storage (Firefox) or Application (Chrome), then Cookies, then <code>${site.baseUrl}</code>.</li>
+              <li>Copy the value of <code>${site.sessionCookie}</code> and paste it below.</li>
             </ol>
-            <input type="text" id="sid" placeholder="sails.sid value" autocomplete="off"><br>
+            <input type="text" id="sid" placeholder="${site.sessionCookie} value" autocomplete="off"><br>
             <button onclick="send()">Sign in</button></div>
-            <p>The session goes straight to the TV on your own network and is stored there encrypted. Signing out in Slopstream ends it on Floatplane too.</p>
+            <p>The session goes straight to the TV on your own network and is stored there encrypted. Signing out in Slopstream ends it on ${site.name} too.</p>
             <p id="status"></p>
             <script>
               async function send(){const v=document.getElementById('sid').value.trim();if(!v)return;
-                const s=document.getElementById('status');s.textContent='Checking with Floatplane…';
+                const s=document.getElementById('status');s.textContent='Checking with ${site.name}…';
                 try{const r=await fetch('/upload',{method:'POST',body:new Blob([v])});s.textContent=await r.text();}catch(e){s.textContent='Failed: '+e;}}
             </script></body></html>
         """.trimIndent()
@@ -194,6 +202,7 @@ fun SignInScreen(onDone: () -> Unit, vm: SignInViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val dims = LocalDims.current
     val isTv = LocalIsTv.current
+    val site = vm.site
 
     LaunchedEffect(state.username) {
         if (state.username != null) {
@@ -205,9 +214,9 @@ fun SignInScreen(onDone: () -> Unit, vm: SignInViewModel = hiltViewModel()) {
     if (state.mode == SignInMode.WEB && state.username == null) {
         BackHandler { vm.choose(SignInMode.CHOOSE) }
         Column(Modifier.fillMaxSize()) {
-            ScreenHeader("Sign in to Floatplane", status = "On Floatplane's own page. Slopstream continues once you are signed in.")
+            ScreenHeader("Sign in to ${site.name}", status = "On ${site.name}'s own page. Slopstream continues once you are signed in.")
             state.error?.let { Text(it, color = Palette.Live, modifier = Modifier.padding(horizontal = dims.gutter)) }
-            FloatplaneLoginView(onSession = vm::tryWebSession, modifier = Modifier.fillMaxSize())
+            SiteLoginView(site, onSession = vm::tryWebSession, modifier = Modifier.fillMaxSize())
         }
         return
     }
@@ -216,13 +225,13 @@ fun SignInScreen(onDone: () -> Unit, vm: SignInViewModel = hiltViewModel()) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = dims.gutter).padding(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        ScreenHeader("Sign in to Floatplane", modifier = Modifier.padding(start = 0.dp))
+        ScreenHeader("Sign in to ${site.name}", modifier = Modifier.padding(start = 0.dp))
         state.username?.let { name ->
-            Text("Signed in as $name. Fetching your subscriptions…", style = MaterialTheme.typography.titleMedium, color = Palette.Accent)
+            Text("Signed in as $name.", style = MaterialTheme.typography.titleMedium, color = Palette.Accent)
             return@Column
         }
         Text(
-            "Slopstream plays what your Floatplane plan includes, nothing more. You sign in on Floatplane's own page; " +
+            "Slopstream plays what your ${site.name} membership includes, nothing more. You sign in on ${site.name}'s own page; " +
                 "Slopstream keeps only the resulting session, encrypted on this device.",
             color = Palette.TextDim,
             style = MaterialTheme.typography.bodyMedium,
@@ -238,35 +247,35 @@ fun SignInScreen(onDone: () -> Unit, vm: SignInViewModel = hiltViewModel()) {
         state.lanAddress?.let { address ->
             ListRow {
                 Column {
-                    Text("On a computer signed in to floatplane.com, in the same network, open", color = Palette.TextDim, style = MaterialTheme.typography.bodyMedium)
+                    Text("On a computer signed in to ${site.host}, in the same network, open", color = Palette.TextDim, style = MaterialTheme.typography.bodyMedium)
                     Text(address, style = MaterialTheme.typography.headlineSmall, color = Palette.Accent)
                     Text("It explains where to copy the session from. Keep this screen open.", color = Palette.TextDim, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
-        if (!isTv) PasteField(busy = state.busy, onSubmit = vm::paste)
+        if (!isTv) PasteField(site.sessionCookie, busy = state.busy, onSubmit = vm::paste)
         if (state.busy) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(20.dp), color = Palette.Accent, strokeWidth = 2.dp)
                 Spacer(Modifier.width(12.dp))
-                Text("Checking with Floatplane…")
+                Text("Checking with ${site.name}…")
             }
         }
         state.error?.let { Text(it, color = Palette.Live, modifier = Modifier.widthIn(max = 720.dp)) }
     }
 }
 
-/** For a session copied on this phone: the `sails.sid` value. */
+/** For a session copied on this phone: the session cookie's value. */
 @Composable
-private fun PasteField(busy: Boolean, onSubmit: (String) -> Unit) {
+private fun PasteField(cookie: String, busy: Boolean, onSubmit: (String) -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Or paste the sails.sid value from a signed-in browser", style = MaterialTheme.typography.titleSmall)
+        Text("Or paste the $cookie value from a signed-in browser", style = MaterialTheme.typography.titleSmall)
         OutlinedTextField(
             value = text,
             onValueChange = { text = it },
             singleLine = true,
-            placeholder = { Text("sails.sid") },
+            placeholder = { Text(cookie) },
             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Palette.Accent),
             modifier = Modifier.fillMaxWidth().widthIn(max = 640.dp),
         )
@@ -275,18 +284,18 @@ private fun PasteField(busy: Boolean, onSubmit: (String) -> Unit) {
 }
 
 /**
- * Floatplane's login page. After every page load, and every few seconds while it is open
- * (the site signs in without navigating), its session cookie is handed to [onSession] to try.
- * The cookie is removed from the web view when the screen closes: the encrypted store keeps
- * the only copy.
+ * The site's login page. After every page load, and every few seconds while it is open (the
+ * site signs in without navigating), its session cookie is handed to [onSession] to try. The
+ * cookie is removed from the web view when the screen closes: the encrypted store keeps the
+ * only copy.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun FloatplaneLoginView(onSession: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun SiteLoginView(site: FloatplaneSite, onSession: (String) -> Unit, modifier: Modifier = Modifier) {
     val cookies = remember { CookieManager.getInstance() }
-    fun current(): String? = cookies.getCookie(Floatplane.BASE_URL)
+    fun current(): String? = cookies.getCookie(site.baseUrl)
         ?.split(';')?.map { it.trim() }
-        ?.firstOrNull { it.startsWith(SessionAuthorizer.SESSION_COOKIE + "=") }
+        ?.firstOrNull { it.startsWith(site.sessionCookie + "=") }
         ?.substringAfter('=')
         ?.takeIf { it.isNotBlank() }
 
@@ -298,7 +307,8 @@ private fun FloatplaneLoginView(onSession: (String) -> Unit, modifier: Modifier 
     }
     DisposableEffect(Unit) {
         onDispose {
-            cookies.setCookie(Floatplane.BASE_URL, "${SessionAuthorizer.SESSION_COOKIE}=; Max-Age=0; Path=/")
+            // A __Host- cookie is only replaced by one that is Secure with Path=/.
+            cookies.setCookie(site.baseUrl, "${site.sessionCookie}=; Max-Age=0; Path=/; Secure")
             cookies.flush()
         }
     }
@@ -314,7 +324,7 @@ private fun FloatplaneLoginView(onSession: (String) -> Unit, modifier: Modifier 
                         current()?.let(onSession)
                     }
                 }
-                loadUrl("${Floatplane.BASE_URL}/login")
+                loadUrl("${site.baseUrl}/login")
                 requestFocus()
             }
         },

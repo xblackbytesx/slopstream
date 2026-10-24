@@ -5,9 +5,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -21,8 +23,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -34,6 +38,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import com.xblackbytesx.slopstream.core.SourceKey
 import com.xblackbytesx.slopstream.data.RefreshState
 import com.xblackbytesx.slopstream.data.db.VideoRow
+import com.xblackbytesx.slopstream.ui.comments.CommentsGate
 import com.xblackbytesx.slopstream.ui.components.EmptyState
 import com.xblackbytesx.slopstream.ui.components.PrimaryButton
 import com.xblackbytesx.slopstream.ui.components.ScreenHeader
@@ -44,6 +49,7 @@ import com.xblackbytesx.slopstream.ui.components.VideoGrid
 import com.xblackbytesx.slopstream.ui.components.VideoMenuActions
 import com.xblackbytesx.slopstream.ui.components.VideoMenuDialog
 import com.xblackbytesx.slopstream.ui.components.relativeTime
+import com.xblackbytesx.slopstream.ui.components.tileKey
 import com.xblackbytesx.slopstream.ui.theme.LocalDims
 import com.xblackbytesx.slopstream.ui.theme.LocalIsTv
 import com.xblackbytesx.slopstream.ui.theme.Palette
@@ -57,6 +63,8 @@ data class ListNav(
     /** Phones reach Search from the list headers; TVs from the rail. */
     val search: () -> Unit = {},
     val signIn: (SourceKey) -> Unit = {},
+    val history: () -> Unit = {},
+    val comments: (VideoRow) -> Unit = {},
 )
 
 @Composable
@@ -78,6 +86,13 @@ fun VideosScreen(nav: ListNav, vm: VideosViewModel = hiltViewModel()) {
                     "No ${service.current.label} subscriptions",
                     "They come from your ${service.current.label} account. Subscribe on their site, then refresh here.",
                 )
+            } else if (subs == 0 && service.capabilities.catalog) {
+                EmptyState(
+                    "No ${service.current.label} creators yet",
+                    "Your membership covers all of them. Pick the ones you want in this feed, or add them all.",
+                ) {
+                    PrimaryButton("Add creators", nav.addChannel, icon = Icons.Filled.Add)
+                }
             } else if (subs == 0) {
                 EmptyState(
                     "No subscriptions yet",
@@ -126,7 +141,26 @@ fun WatchLaterScreen(nav: ListNav, vm: WatchLaterViewModel = hiltViewModel()) {
         vm = vm,
         nav = nav,
         serviceBar = true,
+        subHeader = {
+            FlowRow(Modifier.padding(horizontal = LocalDims.current.gutter).padding(bottom = 8.dp)) {
+                SecondaryButton("History", nav.history, icon = Icons.Filled.History)
+            }
+        },
         empty = { EmptyState("Nothing saved", "Long-press a video, or press the menu button on the remote, to keep it for later.") },
+    )
+}
+
+@Composable
+fun HistoryScreen(nav: ListNav, vm: HistoryViewModel = hiltViewModel()) {
+    val items = vm.items.collectAsLazyPagingItems()
+    VideoListScreen(
+        title = "History",
+        items = items,
+        refresh = null,
+        vm = vm,
+        nav = nav,
+        serviceBar = true,
+        empty = { EmptyState("Nothing watched yet", "Videos you watch here, or on your other devices with a sync server, show up here.") },
     )
 }
 
@@ -144,6 +178,7 @@ fun ChannelScreen(nav: ListNav, onUnsubscribed: () -> Unit, vm: ChannelViewModel
         nav = nav.copy(openChannel = {}),
         portrait = tab == ChannelTab.SHORTS,
         showChannel = false,
+        listKey = tab,
         subHeader = {
             // Wraps on a phone: three tabs and two buttons do not fit one line there.
             FlowRow(
@@ -183,16 +218,30 @@ private fun VideoListScreen(
     showChannel: Boolean = true,
     /** Top-level screens pick their service; a channel page belongs to one already. */
     serviceBar: Boolean = false,
+    /** What the list shows (a tab): each gets its own scroll position. */
+    listKey: Any = Unit,
     subHeader: (@Composable () -> Unit)? = null,
     empty: @Composable () -> Unit,
 ) {
     val service by vm.service.collectAsStateWithLifecycle()
+    val commentsGate: CommentsGate = hiltViewModel()
     var menuFor by remember { mutableStateOf<VideoRow?>(null) }
     val isTv = LocalIsTv.current
+    // Held here, not inside the grid: the grid leaves composition for a frame while the list
+    // reloads after the player closes, and its own state would start over at the top.
+    val gridState = key(service.current, listKey) { rememberLazyGridState() }
+    // The tile last played or opened, focused again when this screen comes back (TV).
+    var lastActivated by rememberSaveable { mutableStateOf<String?>(null) }
     val actions = remember(vm, nav) {
         object : VideoActions {
-            override fun play(row: VideoRow) = nav.play(row)
-            override fun menu(row: VideoRow) { menuFor = row }
+            override fun play(row: VideoRow) {
+                lastActivated = row.tileKey()
+                nav.play(row)
+            }
+            override fun menu(row: VideoRow) {
+                lastActivated = row.tileKey()
+                menuFor = row
+            }
             override fun prefetch(row: VideoRow) = vm.prefetch(row)
         }
     }
@@ -212,7 +261,18 @@ private fun VideoListScreen(
         subHeader?.invoke()
         val loadedEmpty = items.itemCount == 0 && items.loadState.refresh is LoadState.NotLoading
         val body: @Composable () -> Unit = {
-            if (loadedEmpty) empty() else VideoGrid(items, actions, portrait = portrait, showChannel = showChannel)
+            if (loadedEmpty) {
+                empty()
+            } else {
+                VideoGrid(
+                    items,
+                    actions,
+                    portrait = portrait,
+                    showChannel = showChannel,
+                    state = gridState,
+                    restoreFocusKey = lastActivated.takeIf { isTv },
+                )
+            }
         }
         if (refresh != null && !isTv) {
             PullToRefreshBox(isRefreshing = refresh.running, onRefresh = vm::refreshNow, modifier = Modifier.fillMaxSize()) { body() }
@@ -229,6 +289,7 @@ private fun VideoListScreen(
                 toggleWatchLater = { vm.toggleWatchLater(row) },
                 toggleWatched = { vm.toggleWatched(row) },
                 openChannel = if (showChannel) ({ nav.openChannel(row) }) else null,
+                comments = if (commentsGate.offers(row.source)) ({ nav.comments(row) }) else null,
             ),
             onDismiss = { menuFor = null },
         )

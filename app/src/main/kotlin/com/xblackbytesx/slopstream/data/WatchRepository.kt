@@ -21,49 +21,73 @@ class WatchRepository @Inject constructor(
     fun watchLater(source: SourceKey): Flow<PagingData<VideoRow>> =
         Pager(PagingConfig(pageSize = 48, enablePlaceholders = false)) { dao.pageWatchLater(source.id) }.flow
 
-    suspend fun state(source: String, remoteId: String): WatchStateEntity? = dao.state(source, remoteId)
+    /** Watched on this service (here or on a synced device), last watched first. */
+    fun history(source: SourceKey): Flow<PagingData<VideoRow>> =
+        Pager(PagingConfig(pageSize = 48, enablePlaceholders = false)) { dao.pageHistory(source.id) }.flow
+
+    /** The watch state, unless it was removed from history. */
+    suspend fun state(source: String, remoteId: String): WatchStateEntity? =
+        dao.state(source, remoteId)?.takeIf { it.deletedAt == null }
 
     /** Where to start: the saved position, unless the video was finished or barely started. */
     suspend fun resumePositionMs(source: String, remoteId: String): Long {
-        val s = dao.state(source, remoteId) ?: return 0
+        val s = state(source, remoteId) ?: return 0
         return if (s.watched || s.positionMs < MIN_RESUME_MS) 0 else s.positionMs
     }
 
     suspend fun savePosition(source: String, remoteId: String, positionMs: Long, durationMs: Long, ended: Boolean = false) {
         if (durationMs <= 0) return
-        val old = dao.state(source, remoteId)
+        val old = state(source, remoteId)
         val watched = ended || isWatched(positionMs, durationMs) || (old?.watched == true)
         dao.upsertState(
-            WatchStateEntity(
-                source = source,
-                remoteId = remoteId,
-                positionMs = if (ended) durationMs else positionMs,
-                durationMs = durationMs,
-                watched = watched,
-                updatedAt = clock.now(),
-                deviceId = settings.deviceId(),
+            withMeta(
+                WatchStateEntity(
+                    source = source,
+                    remoteId = remoteId,
+                    positionMs = if (ended) durationMs else positionMs,
+                    durationMs = durationMs,
+                    watched = watched,
+                    updatedAt = clock.now(),
+                    deviceId = settings.deviceId(),
+                ),
+                old,
             ),
         )
     }
 
     suspend fun setWatched(source: String, remoteId: String, watched: Boolean) {
-        val old = dao.state(source, remoteId)
+        val old = state(source, remoteId)
         dao.upsertState(
-            WatchStateEntity(
-                source = source,
-                remoteId = remoteId,
-                positionMs = if (watched) old?.durationMs ?: 0 else 0,
-                durationMs = old?.durationMs ?: 0,
-                watched = watched,
-                updatedAt = clock.now(),
-                deviceId = settings.deviceId(),
+            withMeta(
+                WatchStateEntity(
+                    source = source,
+                    remoteId = remoteId,
+                    positionMs = if (watched) old?.durationMs ?: 0 else 0,
+                    durationMs = old?.durationMs ?: 0,
+                    watched = watched,
+                    updatedAt = clock.now(),
+                    deviceId = settings.deviceId(),
+                ),
+                old,
             ),
+        )
+    }
+
+    /** History shows the title and channel: from the feed cache or Watch later, else as before. */
+    private suspend fun withMeta(row: WatchStateEntity, old: WatchStateEntity?): WatchStateEntity {
+        val m = dao.meta(row.source, row.remoteId)
+        return row.copy(
+            title = m?.title ?: old?.title,
+            channelId = m?.channelId ?: old?.channelId,
+            channelName = m?.channelName ?: old?.channelName,
+            thumbnailUrl = m?.thumbnailUrl ?: old?.thumbnailUrl,
+            kind = m?.kind ?: old?.kind,
         )
     }
 
     /** Rows from outside the library (YouTube search) with this device's watch state added. */
     suspend fun annotate(rows: List<VideoRow>): List<VideoRow> = rows.map { r ->
-        val s = dao.state(r.source, r.remoteId)
+        val s = state(r.source, r.remoteId)
         val later = dao.watchLater(r.source, r.remoteId)
         r.copy(
             positionMs = s?.positionMs,

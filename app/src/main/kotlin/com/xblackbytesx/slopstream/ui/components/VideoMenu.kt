@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistRemove
 import androidx.compose.material.icons.filled.AccountCircle
@@ -41,6 +42,8 @@ data class VideoMenuActions(
     val toggleWatchLater: () -> Unit,
     val toggleWatched: () -> Unit,
     val openChannel: (() -> Unit)?,
+    /** Null when comments are off or the service has none (decision 20). */
+    val comments: (() -> Unit)? = null,
 )
 
 /** Long-press (or the remote's menu key) on a tile. */
@@ -70,6 +73,9 @@ fun VideoMenuDialog(row: VideoRow, actions: VideoMenuActions, onDismiss: () -> U
                 MenuItem(Icons.Filled.RemoveDone, "Mark as unwatched") { onDismiss(); actions.toggleWatched() }
             } else {
                 MenuItem(Icons.Filled.CheckCircle, "Mark as watched") { onDismiss(); actions.toggleWatched() }
+            }
+            actions.comments?.let { open ->
+                MenuItem(Icons.AutoMirrored.Filled.Comment, "Comments") { onDismiss(); open() }
             }
             actions.openChannel?.let { open ->
                 MenuItem(Icons.Filled.AccountCircle, "Go to ${row.channelName}") { onDismiss(); open() }

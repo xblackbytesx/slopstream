@@ -62,6 +62,25 @@ class YoutubeSmokeTest {
         assertTrue(resolved.remoteId == channel)
     }
 
+    /**
+     * Comments (decision 20): the first page of a recent upload, a second page, and one
+     * comment's replies. If this fails while playback works, YouTube wants more for comments.
+     */
+    @Test
+    fun commentsPageAndReplies() = runTest(timeout = 2.minutes) {
+        val video = RssFeedFetcher(client).fetch(channel).items.first { it.kind == VideoKind.VIDEO }.remoteId
+        val first = source.comments(video)
+        println("comments on $video: ${first.comments.size}, disabled=${first.disabled}, next=${first.next != null}")
+        first.comments.take(3).forEach { println("  ${it.author} (${it.published}, ${it.likes} likes, ${it.replyCount} replies): ${it.text.take(60)}") }
+        assertTrue("no comments", first.comments.isNotEmpty())
+        val next = first.next?.let { source.comments(video, it) }
+        println("second page: ${next?.comments?.size}")
+        val withReplies = first.comments.firstOrNull { it.replies != null }
+        val replies = withReplies?.replies?.let { source.comments(video, it) }
+        println("replies to ${withReplies?.author}: ${replies?.comments?.size} of ${withReplies?.replyCount}")
+        assertNotNull("no second page", next)
+    }
+
     @Test
     fun videoSearchReturnsChannelIds() = runTest(timeout = 2.minutes) {
         val found = source.searchVideos("linus tech tips water cooling")

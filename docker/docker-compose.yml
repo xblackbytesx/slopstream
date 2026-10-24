@@ -24,7 +24,7 @@ services:
     command: ["bash", "docker/run-gradle.sh", ":source-youtube:smokeTest"]
   smoke-floatplane:
     <<: *gradle
-    environment: [FP_CLIENT_ID, FP_BEARER, FP_SESSION]
+    environment: [FP_CLIENT_ID, FP_BEARER, FP_SESSION, SP_SESSION]
     command: ["bash", "docker/run-gradle.sh", ":source-floatplane:smokeTest"]
   screenshots:
     <<: *gradle

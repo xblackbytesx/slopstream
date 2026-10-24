@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,6 +30,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Comment
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Pause
@@ -38,6 +41,7 @@ import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -89,6 +93,8 @@ import com.xblackbytesx.slopstream.playback.EngineState
 import com.xblackbytesx.slopstream.playback.FrameRateMatcher
 import com.xblackbytesx.slopstream.playback.PlayerEngine
 import com.xblackbytesx.slopstream.playback.PlayerSession
+import com.xblackbytesx.slopstream.ui.comments.CommentsList
+import com.xblackbytesx.slopstream.ui.comments.CommentsLoader
 import com.xblackbytesx.slopstream.ui.components.ListRow
 import com.xblackbytesx.slopstream.ui.components.PrimaryButton
 import com.xblackbytesx.slopstream.ui.components.SecondaryButton
@@ -110,6 +116,7 @@ fun PlayerScreen(onBack: () -> Unit, enterPip: () -> Unit, vm: PlayerViewModel =
         matchFrameRate = settings?.matchFrameRate == true,
         onBack = onBack,
         enterPip = enterPip,
+        comments = vm.comments.takeIf { settings?.showComments == true },
     )
 }
 
@@ -131,8 +138,11 @@ fun PlayerChrome(
     portraitShorts: Boolean = false,
     onPrevious: (() -> Unit)? = null,
     onNext: (() -> Unit)? = null,
+    /** Non-null: a Comments button, and the side panel it opens. */
+    comments: CommentsLoader? = null,
 ) {
     val isTv = LocalIsTv.current
+    var showComments by remember { mutableStateOf(false) }
     val player = engine.player
     val inPip by PlayerSession.inPip.collectAsStateWithLifecycle()
     var visible by remember { mutableStateOf(true) }
@@ -221,10 +231,18 @@ fun PlayerChrome(
                     onTogglePlay = ::togglePlay,
                     onSeek = ::seekBy,
                     onQuality = { showQuality = true },
+                    onComments = comments?.let { c -> { c.start(); showComments = true } },
                     onPip = if (!isTv) enterPip else null,
                     onInteract = ::poke,
                     compact = portraitShorts,
                 )
+            }
+        }
+
+        if (showComments && comments != null && !inPip) {
+            CommentsPanel(comments, isTv, Modifier.align(if (isTv) Alignment.CenterEnd else Alignment.BottomCenter)) {
+                showComments = false
+                runCatching { rootFocus.requestFocus() }
             }
         }
 
@@ -241,6 +259,12 @@ fun PlayerChrome(
                 }
             }
         }
+    }
+
+    // Declared last, so Back closes the panel before anything else.
+    BackHandler(enabled = showComments) {
+        showComments = false
+        runCatching { rootFocus.requestFocus() }
     }
 
     if (showQuality) {
@@ -299,6 +323,7 @@ private fun Controls(
     onTogglePlay: () -> Unit,
     onSeek: (Long) -> Unit,
     onQuality: () -> Unit,
+    onComments: (() -> Unit)?,
     onPip: (() -> Unit)?,
     onInteract: () -> Unit,
     compact: Boolean,
@@ -371,12 +396,35 @@ private fun Controls(
                 )
                 if (!live && !compact) RoundButton(Icons.Filled.Forward10, "Forward 10 seconds", { onSeek(10_000) }, onInteract)
                 Spacer(Modifier.weight(1f))
+                onComments?.let { RoundButton(Icons.AutoMirrored.Filled.Comment, "Comments", it, onInteract) }
                 if (state.plan?.qualityOptions.orEmpty().size > 1) {
                     RoundButton(Icons.Filled.HighQuality, "Quality", onQuality, onInteract)
                 }
                 onPip?.let { RoundButton(Icons.Filled.PictureInPictureAlt, "Picture in picture", it, onInteract) }
             }
         }
+    }
+}
+
+/** Comments beside the video (TV: a side sheet; phone: the lower half), which keeps playing. */
+@Composable
+private fun CommentsPanel(loader: CommentsLoader, isTv: Boolean, modifier: Modifier, onClose: () -> Unit) {
+    val state by loader.state.collectAsStateWithLifecycle()
+    val first = remember { FocusRequester() }
+    val close = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { close.requestFocus() } }
+    LaunchedEffect(state.nodes.isNotEmpty()) { if (state.nodes.isNotEmpty()) runCatching { first.requestFocus() } }
+    Column(
+        modifier
+            .then(if (isTv) Modifier.fillMaxHeight().width(460.dp) else Modifier.fillMaxWidth().fillMaxHeight(0.6f))
+            .background(Palette.Surface.copy(alpha = 0.96f), RoundedCornerShape(if (isTv) 0.dp else 16.dp))
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Comments", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            IconButton(onClick = onClose, modifier = Modifier.focusRequester(close)) { Icon(Icons.Filled.Close, "Close comments") }
+        }
+        CommentsList(state, loader::more, loader::toggleReplies, loader::moreReplies, firstFocus = first)
     }
 }
 

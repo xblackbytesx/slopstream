@@ -2,6 +2,8 @@ package com.xblackbytesx.slopstream.youtube
 
 import com.xblackbytesx.slopstream.core.Channel
 import com.xblackbytesx.slopstream.core.ChannelFeed
+import com.xblackbytesx.slopstream.core.Comment
+import com.xblackbytesx.slopstream.core.CommentsPage
 import com.xblackbytesx.slopstream.core.ContentSource
 import com.xblackbytesx.slopstream.core.SourceBlockedException
 import com.xblackbytesx.slopstream.core.SourceCapabilities
@@ -18,11 +20,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import org.schabi.newpipe.extractor.NewPipe
+import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.channel.ChannelInfo
 import org.schabi.newpipe.extractor.channel.ChannelInfoItem
 import org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo
 import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs
+import org.schabi.newpipe.extractor.comments.CommentsInfo
+import org.schabi.newpipe.extractor.comments.CommentsInfoItem
 import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
@@ -62,7 +67,10 @@ class YoutubeSource(
 
     override val key = SourceKey.YOUTUBE
 
-    override val capabilities = SourceCapabilities(needsLogin = false, hasShorts = true, hasLive = true, canSearchChannels = true, canSearchVideos = true)
+    override val capabilities = SourceCapabilities(
+        needsLogin = false, hasShorts = true, hasLive = true, canSearchChannels = true, canSearchVideos = true,
+        importsSubscriptions = true, hasComments = true,
+    )
 
     override suspend fun searchChannels(query: String): List<Channel> = io {
         val handler = service.searchQHFactory.fromQuery(query, listOf(YoutubeSearchQueryHandlerFactory.CHANNELS), "")
@@ -177,6 +185,35 @@ class YoutubeSource(
             dateApproximate = date?.isApproximation ?: true,
         )
     }
+
+    override suspend fun comments(videoId: String, from: CommentsPage.Cursor?): CommentsPage = io {
+        val url = YoutubeIds.videoUrl(videoId)
+        if (from == null) {
+            val info = CommentsInfo.getInfo(service, url)
+            CommentsPage(info.relatedItems.map(::comment), cursor(info.nextPage), disabled = info.isCommentsDisabled)
+        } else {
+            val page = CommentsInfo.getMoreItems(service, url, from.handle as Page)
+            CommentsPage(page.items.map(::comment), cursor(page.nextPage))
+        }
+    }
+
+    private fun cursor(page: Page?): CommentsPage.Cursor? = page?.takeIf { Page.isValid(it) }?.let(CommentsPage::Cursor)
+
+    private fun comment(c: CommentsInfoItem) = Comment(
+        id = c.commentId.orEmpty(),
+        author = c.uploaderName.orEmpty(),
+        // Shown at about 40 dp: the smallest rendition that is still sharp.
+        avatarUrl = c.uploaderAvatars.filter { it.url.isNotBlank() }
+            .let { all -> all.filter { it.height >= 88 }.minByOrNull { it.height } ?: all.maxByOrNull { it.height } }?.url,
+        text = CommentText.plain(c.commentText?.content.orEmpty()),
+        likes = c.likeCount.takeIf { it >= 0 },
+        published = c.textualUploadDate?.takeIf { it.isNotBlank() },
+        replyCount = c.replyCount.coerceAtLeast(0),
+        pinned = c.isPinned,
+        heartedByUploader = c.isHeartedByUploader,
+        byUploader = c.isChannelOwner,
+        replies = cursor(c.replies),
+    )
 
     /** Runs extractor work on the IO pool and maps its exceptions onto the core contract. */
     private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) {

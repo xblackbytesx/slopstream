@@ -21,24 +21,28 @@ import kotlinx.serialization.json.JsonObject
 import java.time.Clock
 
 /**
- * Floatplane behind the shared contract.
+ * A Floatplane-platform site (Floatplane, Sauce+) behind the shared contract.
  *
- * Subscriptions come from the account ([accountSubscriptions]) and are read-only here: they are
- * paid, so they are managed on floatplane.com. Searching and adding channels does not apply.
+ * On Floatplane, subscriptions come from the account ([accountSubscriptions]) and are
+ * read-only here: they are paid per creator, so they are managed on floatplane.com. On a site
+ * with [FloatplaneSite.globalSubscriptions] (Sauce+) one subscription covers every creator, so
+ * the member picks creators from the [catalog] and follows them locally, like YouTube.
  */
 class FloatplaneSource(
     private val api: FloatplaneApi,
+    val site: FloatplaneSite = FloatplaneSite.FLOATPLANE,
     private val clock: Clock = Clock.systemUTC(),
 ) : ContentSource {
-    override val key = SourceKey.FLOATPLANE
+    override val key: SourceKey = site.key
     override val capabilities = SourceCapabilities(
         needsLogin = true,
         hasShorts = false,
-        hasLive = true,
-        canSearchChannels = false,
-        accountSubscriptions = true,
+        hasLive = site.hasLive,
+        canSearchChannels = site.globalSubscriptions,
+        accountSubscriptions = !site.globalSubscriptions,
         // delivery/info is rate limited: resolve once per play, never on focus.
         prefetchPlayback = false,
+        catalog = site.globalSubscriptions,
     )
 
     /** Who is signed in; also the check that a session works. */
@@ -46,16 +50,25 @@ class FloatplaneSource(
 
     suspend fun signOut() = api.logout()
 
-    /** The creators the account pays for, one row each. */
+    /** The creators the account pays for, one row each. None on a global-subscription site. */
     override suspend fun accountSubscriptions(): List<Channel> =
-        api.subscriptions().map { it.creator }.distinct().map { FloatplaneMapping.channel(api.creator(it)) }
+        if (site.globalSubscriptions) {
+            emptyList()
+        } else {
+            api.subscriptions().map { it.creator }.distinct().map { FloatplaneMapping.channel(api.creator(it), site) }
+        }
 
-    override suspend fun searchChannels(query: String): List<Channel> = emptyList()
+    /** Every creator on the site, A to Z. Only offered where one subscription covers them all. */
+    override suspend fun catalog(): List<Channel> =
+        if (site.globalSubscriptions) api.creators().map { FloatplaneMapping.channel(it, site) }.sortedBy { it.name.lowercase() } else emptyList()
+
+    override suspend fun searchChannels(query: String): List<Channel> =
+        if (site.globalSubscriptions) api.creators(query.trim()).map { FloatplaneMapping.channel(it, site) } else emptyList()
 
     override suspend fun searchVideos(query: String): List<VideoItem> = emptyList()
 
     override suspend fun resolveChannel(input: String): Channel =
-        throw SourceUnavailableException("Floatplane subscriptions come from your account")
+        throw SourceUnavailableException("Pick ${site.name} creators from its list")
 
     /**
      * [channelId] is a creator id: one request covers all its sub-channels. A livestream that
@@ -71,7 +84,7 @@ class FloatplaneSource(
             emptyMap()
         }
         val live = liveNow(creator)
-        val items = listOfNotNull(live.getOrNull()) + FloatplaneMapping.feedItems(creator, posts, titles)
+        val items = listOfNotNull(live.getOrNull()) + FloatplaneMapping.feedItems(creator, posts, titles, site)
         // Only an answer either way says whether an earlier live item has ended.
         val complete = if (live.isSuccess) setOf(VideoKind.LIVE) else emptySet()
         return ChannelFeed(key, creator.id, creator.title, items, completeKinds = complete)
@@ -82,11 +95,12 @@ class FloatplaneSource(
      * endpoint hands out a URL even while offline; the playlist itself is 404 then.
      */
     private suspend fun liveNow(creator: CreatorDto): Result<VideoItem?> {
+        if (!site.hasLive) return Result.success(null)
         val stream = creator.liveStream ?: return Result.success(null)
         return try {
             val url = FloatplaneMapping.liveUrl(api.delivery("live", stream.id))
             val on = url != null && api.status(url) == 200
-            Result.success(if (on) FloatplaneMapping.liveItem(creator, stream, clock.instant()) else null)
+            Result.success(if (on) FloatplaneMapping.liveItem(creator, stream, clock.instant(), site) else null)
         } catch (e: CancellationException) {
             throw e
         } catch (e: SourceAuthException) {
@@ -124,7 +138,15 @@ class FloatplaneSource(
             chosen = chosen,
             authHosts = setOf(api.host),
             authHeaders = api.credentialHeaders(),
+            // Sauce+ playlists name www.floatplane.com's watchKey, which refuses a Sauce+
+            // session; the same path on www.sauceplus.com serves the key (live report 2026-10-23).
+            hostRewrites = if (api.host != FLOATPLANE_KEY_HOST) mapOf(FLOATPLANE_KEY_HOST to api.host) else emptyMap(),
         )
+    }
+
+    private companion object {
+        /** Where every playlist on the platform points its AES key, Sauce+ included. */
+        val FLOATPLANE_KEY_HOST = FloatplaneSite.FLOATPLANE.host
     }
 
     /** The creator's livestream, when it is on. */

@@ -3,7 +3,7 @@
 #   make test         JVM tests: core policy, YouTube parsers, app Robolectric tests (offline)
 #   make smoke        live checks against YouTube (network): feeds, Shorts split, stream plan
 #   make smoke-floatplane  read-only report from your Floatplane account (FP_CLIENT_ID,
-#                     FP_BEARER or FP_SESSION in the environment; see FloatplaneSmokeTest)
+#                     FP_BEARER, FP_SESSION, or SP_SESSION for Sauce+; see FloatplaneSmokeTest)
 #   make build        debug APK -> build-output/slopstream-debug.apk
 #   make release      R8-shrunk release APK (signed when keystore.properties exists)
 #   make lint         Android lint

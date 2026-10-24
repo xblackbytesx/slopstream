@@ -13,6 +13,7 @@ import com.xblackbytesx.slopstream.data.db.FeedItemEntity
 import com.xblackbytesx.slopstream.data.db.LibrarySearch
 import com.xblackbytesx.slopstream.data.db.SubscriptionDao
 import com.xblackbytesx.slopstream.data.db.SubscriptionEntity
+import com.xblackbytesx.slopstream.data.sync.ServerFeed
 import com.xblackbytesx.slopstream.data.db.VideoRow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
@@ -49,6 +50,7 @@ class FeedRepository @Inject constructor(
     private val accounts: Accounts,
     private val settings: Settings,
     private val clock: Clock,
+    private val server: ServerFeed,
 ) {
     private val _state = MutableStateFlow(RefreshState())
     val state: StateFlow<RefreshState> = _state.asStateFlow()
@@ -85,9 +87,11 @@ class FeedRepository @Inject constructor(
     }
 
     /**
-     * Fetches every subscribed channel, [PARALLEL] at a time. A channel that fails keeps its
-     * cached items (last good copy) and records the error; a block from the service stops the
-     * whole run, since hammering on makes it worse.
+     * Brings every subscribed channel up to date: first from the sync server's lists when one
+     * is connected (decision 19), then by fetching here whatever it does not have fresh,
+     * [PARALLEL] at a time. A channel that fails keeps its cached items (last good copy) and
+     * records the error; a block from the service stops the whole run, since hammering on
+     * makes it worse.
      */
     suspend fun refreshAll(only: List<SubscriptionEntity>? = null) {
         // A full refresh already running covers everything; targeted ones (new channels) wait.
@@ -101,9 +105,8 @@ class FeedRepository @Inject constructor(
             // Favorites first: launches start in order and the semaphore is fair, so they are
             // fetched before the rest, and before a block can stop the run. Services signed out
             // or expired are skipped: their cached items stay (last good copy).
-            val channels = (only ?: subscriptionDao.active())
-                .filter { signedIn(SourceKey.fromId(it.source)) }
-                .sortedByDescending { it.favorite }
+            val followed = (only ?: subscriptionDao.active()).filter { signedIn(SourceKey.fromId(it.source)) }
+            val channels = server.pull(followed).sortedByDescending { it.favorite }
             _state.value = RefreshState(running = true, total = channels.size)
             val blocked = AtomicBoolean(false)
             val gate = Semaphore(PARALLEL)
@@ -124,6 +127,18 @@ class FeedRepository @Inject constructor(
         } finally {
             refreshLock.unlock()
         }
+    }
+
+    /** Pull-to-refresh and the TV's refresh button: the server fetches first, then the rest. */
+    suspend fun refreshNow() {
+        server.refresh()
+        refreshAll()
+    }
+
+    /** The server's lists only, no fetching here: the minute tick while the app is open. */
+    suspend fun pullFromServer() {
+        if (refreshLock.isLocked) return
+        server.pull(subscriptionDao.active().filter { signedIn(SourceKey.fromId(it.source)) })
     }
 
     private fun signedIn(source: SourceKey): Boolean =

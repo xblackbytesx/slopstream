@@ -78,6 +78,10 @@ class FloatplaneApi(
 
     suspend fun creator(id: String): CreatorDto = get("/api/v3/creator/info", CreatorDto.serializer()) { addQueryParameter("id", id) }
 
+    /** Every creator on the site matching [search] ("" for all): discovery, not subscriptions. */
+    suspend fun creators(search: String = ""): List<CreatorDto> =
+        get("/api/v3/creator/list", ListSerializer(CreatorDto.serializer())) { addQueryParameter("search", search) }
+
     suspend fun channels(creatorIds: List<String>): List<ChannelDto> =
         get("/api/v3/creator/channels/list", ListSerializer(ChannelDto.serializer())) {
             creatorIds.forEach { addQueryParameter("ids", it) }
@@ -173,17 +177,17 @@ internal fun errorNames(body: String): Set<String> = runCatching {
 }.getOrDefault(emptySet())
 
 /**
- * The website session (`sails.sid`) from signing in on floatplane.com, the stopgap until
- * Slopstream has its own OAuth client id ([TokenAuthorizer]). [load] returns the cookie value.
+ * The website session ([FloatplaneSite.sessionCookie]) from signing in on the site, the
+ * stopgap until Slopstream has its own OAuth client id ([TokenAuthorizer]). [load] returns
+ * the cookie value.
  */
-class SessionAuthorizer(private val load: suspend () -> String?) : FloatplaneAuthorizer {
+class SessionAuthorizer(
+    private val cookie: String = FloatplaneSite.FLOATPLANE.sessionCookie,
+    private val load: suspend () -> String?,
+) : FloatplaneAuthorizer {
     override suspend fun authorize(request: Request.Builder) {
-        val sid = load() ?: throw SourceAuthException("Not signed in to Floatplane")
-        request.header("Cookie", "$SESSION_COOKIE=$sid")
-    }
-
-    companion object {
-        const val SESSION_COOKIE = "sails.sid"
+        val sid = load() ?: throw SourceAuthException("Not signed in")
+        request.header("Cookie", "$cookie=$sid")
     }
 }
 

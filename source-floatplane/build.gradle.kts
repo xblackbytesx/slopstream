@@ -31,7 +31,7 @@ tasks.register<Test>("smokeTest") {
     include("**/*SmokeTest*")
     // Credentials come from the environment (see FloatplaneSmokeTest); the token cache lives
     // in the git-ignored .secrets/ at the repo root.
-    listOf("FP_CLIENT_ID", "FP_BEARER", "FP_SESSION").forEach { k -> System.getenv(k)?.let { environment(k, it) } }
+    listOf("FP_CLIENT_ID", "FP_BEARER", "FP_SESSION", "SP_SESSION").forEach { k -> System.getenv(k)?.let { environment(k, it) } }
     systemProperty("fp.secrets", rootProject.file(".secrets").absolutePath)
     outputs.upToDateWhen { false }
     testLogging {

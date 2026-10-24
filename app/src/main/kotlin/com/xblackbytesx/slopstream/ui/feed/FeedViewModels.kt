@@ -62,7 +62,7 @@ abstract class VideoListViewModel(
     }
 
     fun refreshNow() {
-        viewModelScope.launch { feed.refreshAll() }
+        viewModelScope.launch { feed.refreshNow() }
     }
 }
 
@@ -103,6 +103,16 @@ class WatchLaterViewModel @Inject constructor(
     services: Services,
 ) : VideoListViewModel(feed, watch, playback, services) {
     val items: Flow<PagingData<VideoRow>> = services.current.flatMapLatest { watch.watchLater(it) }.cachedIn(viewModelScope)
+}
+
+@HiltViewModel
+class HistoryViewModel @Inject constructor(
+    feed: FeedRepository,
+    watch: WatchRepository,
+    playback: PlaybackRepository,
+    services: Services,
+) : VideoListViewModel(feed, watch, playback, services) {
+    val items: Flow<PagingData<VideoRow>> = services.current.flatMapLatest { watch.history(it) }.cachedIn(viewModelScope)
 }
 
 @HiltViewModel

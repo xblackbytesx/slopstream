@@ -9,6 +9,8 @@ import kotlinx.serialization.Serializable
 @Serializable data object SubscriptionsRoute
 @Serializable data object SettingsRoute
 @Serializable data object ImportRoute
+@Serializable data object SyncConnectRoute
+@Serializable data object HistoryRoute
 
 /** [query] prefills the search, e.g. a channel link shared from a browser. */
 @Serializable data class AddChannelRoute(val query: String = "")
@@ -18,6 +20,9 @@ import kotlinx.serialization.Serializable
 @Serializable data class SignInRoute(val source: String)
 @Serializable data class ChannelRoute(val source: String, val channelId: String, val name: String)
 @Serializable data class PlayerRoute(val source: String, val videoId: String, val title: String = "", val channelName: String = "")
+
+/** A video's comments (decision 20); [title] names it in the header. */
+@Serializable data class CommentsRoute(val source: String, val videoId: String, val title: String = "")
 
 /** The Shorts player pages through the Shorts feed starting at [videoId]. */
 @Serializable data class ShortsPlayerRoute(val source: String, val videoId: String)

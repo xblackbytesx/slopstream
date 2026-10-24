@@ -2,6 +2,7 @@ package com.xblackbytesx.slopstream.floatplane
 
 import com.xblackbytesx.slopstream.core.SourceAuthException
 import com.xblackbytesx.slopstream.core.SourceBlockedException
+import com.xblackbytesx.slopstream.core.SourceKey
 import com.xblackbytesx.slopstream.core.SourceUnavailableException
 import com.xblackbytesx.slopstream.core.VideoKind
 import com.xblackbytesx.slopstream.core.playback.DecoderCaps
@@ -112,6 +113,9 @@ class FloatplaneSourceTest {
         // The key server is the API host and wants the account; the CDN never sees it.
         assertEquals(setOf(server.url("/").host), best.authHosts)
         assertEquals("Bearer test-token", best.authHeaders["Authorization"])
+        // A test server stands in for www.floatplane.com here, so keys are rewritten to it;
+        // against the real host the map is empty (FloatplaneSite.FLOATPLANE).
+        assertEquals(mapOf("www.floatplane.com" to server.url("/").host), best.hostRewrites)
         // Part one is still processing, so the post starts with part two.
         assertEquals("vidM1", seen.last().url.queryParameter("entityId"))
         assertEquals("onDemand", seen.last().url.queryParameter("scenario"))
@@ -164,6 +168,42 @@ class FloatplaneSourceTest {
         val unknown = source().fetchChannelFeed("creatorA")
         assertEquals(listOf("postSubChan", "postSingle1"), unknown.items.map { it.remoteId })
         assertEquals(emptySet<VideoKind>(), unknown.completeKinds)
+    }
+
+    @Test
+    fun sauceplusPicksFromTheCatalogAndNeverProbesLive() = runTest {
+        routes["/api/v3/creator/list"] = MockResponse.Builder().code(200).body("[${fixture("creator.json")}]").build()
+        routes["/api/v3/creator/info"] = ok("creator.json")
+        routes["/api/v3/content/creator"] = ok("posts.json")
+        routes["/api/v3/creator/channels/list"] = ok("channels.json")
+        val sauce = FloatplaneSource(
+            FloatplaneApi(OkHttpClient(), SessionAuthorizer(FloatplaneSite.SAUCEPLUS.sessionCookie) { "sid" }, server.url("/").toString().trimEnd('/')),
+            FloatplaneSite.SAUCEPLUS,
+        )
+
+        assertTrue(sauce.capabilities.catalog && !sauce.capabilities.accountSubscriptions && !sauce.capabilities.hasLive)
+        // One membership covers everyone: the account lists nothing, the catalog lists all.
+        assertEquals(emptyList<String>(), sauce.accountSubscriptions().map { it.remoteId })
+        val catalog = sauce.catalog()
+        assertEquals(listOf("creatorA"), catalog.map { it.remoteId })
+        assertEquals(SourceKey.SAUCEPLUS, catalog.single().source)
+        assertEquals("https://www.sauceplus.com/channel/creatora/home", catalog.single().url)
+        assertEquals("", seen.first { it.url.encodedPath == "/api/v3/creator/list" }.url.queryParameter("search"))
+        assertEquals("__Host-sp-sess=sid", seen.first().headers["Cookie"])
+
+        val feed = sauce.fetchChannelFeed("creatorA")
+        assertEquals(listOf("postSubChan", "postSingle1"), feed.items.map { it.remoteId })
+        assertTrue(feed.items.all { it.source == SourceKey.SAUCEPLUS })
+        // The creator fixture has a livestream, but live is off on Sauce+: no delivery call.
+        assertTrue(seen.none { it.url.encodedPath == "/api/v3/delivery/info" })
+
+        // Its playlists name Floatplane's key server; keys are fetched from the site instead.
+        routes["/api/v3/content/post"] = ok("post_multi.json")
+        routes["/api/v3/delivery/info"] = ok("delivery_ondemand.json")
+        val plan = sauce.resolvePlayback("postSubChan", shield, PlaybackPrefs()) as PlaybackPlan.Manifest
+        assertEquals(mapOf("www.floatplane.com" to server.url("/").host), plan.hostRewrites)
+        assertEquals(setOf(server.url("/").host), plan.authHosts)
+        assertEquals("__Host-sp-sess=sid", plan.authHeaders["Cookie"])
     }
 
     @Test

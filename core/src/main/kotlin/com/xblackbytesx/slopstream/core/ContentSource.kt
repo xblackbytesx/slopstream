@@ -24,6 +24,9 @@ interface ContentSource {
     /** The channels the signed-in account subscribes to ([SourceCapabilities.accountSubscriptions]). */
     suspend fun accountSubscriptions(): List<Channel> = emptyList()
 
+    /** Every channel there is ([SourceCapabilities.catalog]), to pick from. */
+    suspend fun catalog(): List<Channel> = emptyList()
+
     /** A channel URL, handle (@name) or id, as typed or pasted by the user. */
     suspend fun resolveChannel(input: String): Channel
 
@@ -34,6 +37,13 @@ interface ContentSource {
 
     /** The same plan playing another of its [PlaybackPlan.Adaptive.videoOptions] (quality menu). */
     suspend fun switchVideo(plan: PlaybackPlan.Adaptive, candidateId: String): PlaybackPlan.Adaptive
+
+    /**
+     * A page of a video's comments in the service's own order, or of one comment's replies
+     * ([Comment.replies]); the first page when [from] is null ([SourceCapabilities.hasComments]).
+     */
+    suspend fun comments(videoId: String, from: CommentsPage.Cursor? = null): CommentsPage =
+        throw SourceUnavailableException("This service has no comments here")
 }
 
 open class SourceException(message: String, cause: Throwable? = null) : Exception(message, cause)

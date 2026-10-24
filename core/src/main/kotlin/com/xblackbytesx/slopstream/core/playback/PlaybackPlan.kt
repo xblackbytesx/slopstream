@@ -42,6 +42,12 @@ sealed interface PlaybackPlan {
          */
         val authHosts: Set<String> = emptySet(),
         val authHeaders: Map<String, String> = emptyMap(),
+        /**
+         * Requests to a key host (on the left) go to another host (on the right) first. Sauce+
+         * playlists name Floatplane's key server, which only answers on www.sauceplus.com for
+         * a Sauce+ member.
+         */
+        val hostRewrites: Map<String, String> = emptyMap(),
     ) : PlaybackPlan {
         fun withVariant(candidateId: String): Manifest {
             val v = variants.firstOrNull { it.candidate.id == candidateId } ?: return this

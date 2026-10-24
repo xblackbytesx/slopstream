@@ -5,10 +5,11 @@ import androidx.room.Entity
 import androidx.room.Index
 
 /*
- * Rows the future sync server merges (subscription, watch_state, watch_later) carry
- * `updatedAt` (epoch ms, last writer wins), `deletedAt` (tombstone, never a hard delete) and
- * the writing `deviceId`. Everything keyed by (source, remoteId) so Floatplane and Sauce+ fit
- * the same tables. feed_item and the channel columns refreshed from the network are cache.
+ * Rows the sync server merges (subscription, watch_state, watch_later) carry `updatedAt` (epoch
+ * ms, the conflict clock), `deletedAt` (tombstone, never a hard delete) and the writing
+ * `deviceId`, plus the sync bookkeeping (`rev`, `localVersion`, `syncedVersion`; AGENTS.md
+ * decision 18). Everything keyed by (source, remoteId) so Floatplane and Sauce+ fit the same
+ * tables. feed_item and the channel columns refreshed from the network are cache.
  */
 
 @Entity(tableName = "subscription", primaryKeys = ["source", "remoteId"])
@@ -26,6 +27,14 @@ data class SubscriptionEntity(
     // Cache, not synced:
     val lastRefreshAt: Long? = null,
     val lastError: String? = null,
+    /** The highest feed rev the sync server sent for this channel (schema 4); 0: none yet. */
+    @ColumnInfo(defaultValue = "0") val feedRev: Long = 0,
+    // Sync (schema 3), never set by repositories: the DAO's write keeps them.
+    /** The server's rev of this row when it was last synced; null until then. */
+    @ColumnInfo(defaultValue = "NULL") val rev: Long? = null,
+    /** Bumped by every local change; the row is unsynced while it is ahead of [syncedVersion]. */
+    @ColumnInfo(defaultValue = "0") val localVersion: Long = 0,
+    @ColumnInfo(defaultValue = "0") val syncedVersion: Long = 0,
 )
 
 @Entity(
@@ -57,6 +66,20 @@ data class WatchStateEntity(
     val watched: Boolean,
     val updatedAt: Long,
     val deviceId: String,
+    // History (schema 3): what the server's History page shows without the feed cache.
+    @ColumnInfo(defaultValue = "NULL") val title: String? = null,
+    @ColumnInfo(defaultValue = "NULL") val channelId: String? = null,
+    @ColumnInfo(defaultValue = "NULL") val channelName: String? = null,
+    @ColumnInfo(defaultValue = "NULL") val thumbnailUrl: String? = null,
+    @ColumnInfo(defaultValue = "NULL") val kind: String? = null,
+    /** Removed from history (on the server's website): the video shows as unwatched. */
+    @ColumnInfo(defaultValue = "NULL") val deletedAt: Long? = null,
+    // Sync (schema 3), never set by repositories: the DAO's write keeps them.
+    /** The server's rev of this row when it was last synced; null until then. */
+    @ColumnInfo(defaultValue = "NULL") val rev: Long? = null,
+    /** Bumped by every local change; the row is unsynced while it is ahead of [syncedVersion]. */
+    @ColumnInfo(defaultValue = "0") val localVersion: Long = 0,
+    @ColumnInfo(defaultValue = "0") val syncedVersion: Long = 0,
 )
 
 @Entity(tableName = "watch_later", primaryKeys = ["source", "remoteId"])
@@ -75,6 +98,12 @@ data class WatchLaterEntity(
     val updatedAt: Long,
     val deletedAt: Long?,
     val deviceId: String,
+    // Sync (schema 3), never set by repositories: the DAO's write keeps them.
+    /** The server's rev of this row when it was last synced; null until then. */
+    @ColumnInfo(defaultValue = "NULL") val rev: Long? = null,
+    /** Bumped by every local change; the row is unsynced while it is ahead of [syncedVersion]. */
+    @ColumnInfo(defaultValue = "0") val localVersion: Long = 0,
+    @ColumnInfo(defaultValue = "0") val syncedVersion: Long = 0,
 )
 
 /** A feed or watch-later row joined with its watch state, as the tiles show it. */

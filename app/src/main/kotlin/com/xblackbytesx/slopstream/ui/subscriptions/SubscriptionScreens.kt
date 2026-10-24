@@ -104,8 +104,8 @@ fun SubscriptionsScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (!managed) {
-                PrimaryButton("Add channel", addChannel, icon = Icons.Filled.Add)
-                SecondaryButton("Import", import, icon = Icons.Filled.Download)
+                PrimaryButton(if (service.capabilities.catalog) "Add creators" else "Add channel", addChannel, icon = Icons.Filled.Add)
+                if (service.capabilities.importsSubscriptions) SecondaryButton("Import", import, icon = Icons.Filled.Download)
             }
             SecondaryButton("Refresh all", vm::refreshAll, icon = Icons.Filled.Refresh, enabled = !refresh.running)
             if (managed) {
@@ -119,6 +119,10 @@ fun SubscriptionsScreen(
                 "No subscriptions",
                 "Your ${service.current.label} account has none yet. Subscribe on their site, then refresh.",
             )
+            list.isEmpty() && service.capabilities.catalog -> EmptyState(
+                "No creators yet",
+                "Your ${service.current.label} membership covers every creator. Pick the ones you want, or add them all.",
+            ) { PrimaryButton("Add creators", addChannel, icon = Icons.Filled.Add) }
             list.isEmpty() -> EmptyState("No subscriptions", "Add channels one by one, or import everything you follow in NewPipe or on YouTube.")
             else -> SubscriptionList(
                 channels = list,
@@ -232,21 +236,43 @@ fun AddChannelScreen(vm: AddChannelViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val dims = LocalDims.current
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("Add channel", status = "Search by name, or paste a channel link or @handle")
+        if (state.catalog) {
+            val left = state.shown.count { it.remoteId !in state.subscribed }
+            ScreenHeader("Add ${state.service.label} creators", status = "Your membership covers all of them. Follow the ones you want in your feed.")
+            Row(
+                Modifier.padding(horizontal = dims.gutter).padding(bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                PrimaryButton(
+                    if (state.query.isBlank()) "Add all" else "Add all shown",
+                    vm::addAll,
+                    icon = Icons.Filled.Add,
+                    enabled = left > 0 && !state.searching,
+                )
+                if (state.results.isNotEmpty()) {
+                    Text("${state.subscribed.size} of ${state.results.size} followed", color = Palette.TextDim, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        } else {
+            ScreenHeader("Add channel", status = "Search by name, or paste a channel link or @handle")
+        }
         Row(Modifier.padding(horizontal = dims.gutter).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = state.query,
                 onValueChange = vm::setQuery,
                 singleLine = true,
-                placeholder = { Text("Channel name, URL or @handle") },
+                placeholder = { Text(if (state.catalog) "Filter creators" else "Channel name, URL or @handle") },
                 leadingIcon = { Icon(Icons.Filled.Search, null) },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { vm.search() }),
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Palette.Accent),
                 modifier = Modifier.weight(1f).widthIn(max = 640.dp),
             )
-            Spacer(Modifier.width(12.dp))
-            PrimaryButton("Search", vm::search, enabled = state.query.isNotBlank() && !state.searching)
+            if (!state.catalog) {
+                Spacer(Modifier.width(12.dp))
+                PrimaryButton("Search", vm::search, enabled = state.query.isNotBlank() && !state.searching)
+            }
         }
         when {
             state.searching -> Row(Modifier.fillMaxWidth().padding(32.dp), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator(color = Palette.Accent) }
@@ -256,7 +282,7 @@ fun AddChannelScreen(vm: AddChannelViewModel = hiltViewModel()) {
             contentPadding = PaddingValues(start = dims.gutter, end = dims.gutter, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(state.results, key = { it.remoteId }) { c -> ChannelResult(c, c.remoteId in state.subscribed) { vm.toggle(c) } }
+            items(state.shown, key = { it.remoteId }) { c -> ChannelResult(c, c.remoteId in state.subscribed) { vm.toggle(c) } }
         }
     }
 }

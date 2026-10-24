@@ -1,7 +1,6 @@
 package com.xblackbytesx.slopstream.floatplane
 
 import com.xblackbytesx.slopstream.core.Channel
-import com.xblackbytesx.slopstream.core.SourceKey
 import com.xblackbytesx.slopstream.core.VideoItem
 import com.xblackbytesx.slopstream.core.VideoKind
 import com.xblackbytesx.slopstream.core.playback.VideoCandidate
@@ -22,14 +21,14 @@ import kotlin.math.roundToInt
  */
 object FloatplaneMapping {
 
-    fun creatorUrl(urlname: String) = "${Floatplane.BASE_URL}/channel/$urlname/home"
-    fun postUrl(postId: String) = "${Floatplane.BASE_URL}/post/$postId"
+    fun creatorUrl(urlname: String, site: FloatplaneSite = FloatplaneSite.FLOATPLANE) = "${site.baseUrl}/channel/$urlname/home"
+    fun postUrl(postId: String, site: FloatplaneSite = FloatplaneSite.FLOATPLANE) = "${site.baseUrl}/post/$postId"
 
-    fun channel(c: CreatorDto) = Channel(
-        source = SourceKey.FLOATPLANE,
+    fun channel(c: CreatorDto, site: FloatplaneSite = FloatplaneSite.FLOATPLANE) = Channel(
+        source = site.key,
         remoteId = c.id,
         name = c.title,
-        url = creatorUrl(c.urlname),
+        url = creatorUrl(c.urlname, site),
         avatarUrl = c.icon?.pick(200),
     )
 
@@ -47,11 +46,16 @@ object FloatplaneMapping {
      * Video posts the account can play, newest first. Posts outside the user's plan and posts
      * without video are left out: this is a video player, and a locked tile is a dead end.
      */
-    fun feedItems(creator: CreatorDto, posts: List<PostDto>, channelTitles: Map<String, String>): List<VideoItem> =
+    fun feedItems(
+        creator: CreatorDto,
+        posts: List<PostDto>,
+        channelTitles: Map<String, String>,
+        site: FloatplaneSite = FloatplaneSite.FLOATPLANE,
+    ): List<VideoItem> =
         posts.filter { it.metadata.hasVideo && it.isAccessible }
             .map { p ->
                 VideoItem(
-                    source = SourceKey.FLOATPLANE,
+                    source = site.key,
                     remoteId = p.id,
                     channelId = creator.id,
                     channelName = channelTitleOf(p) ?: channelIdOf(p)?.let(channelTitles::get) ?: creator.title,
@@ -72,8 +76,8 @@ object FloatplaneMapping {
     fun creatorOfLiveId(id: String): String? = id.takeIf { it.startsWith(LIVE_PREFIX) }?.removePrefix(LIVE_PREFIX)
 
     /** The on-air stream as a tile. Dated [now] so it leads the feed while it lasts. */
-    fun liveItem(creator: CreatorDto, stream: LiveStreamDto, now: Instant) = VideoItem(
-        source = SourceKey.FLOATPLANE,
+    fun liveItem(creator: CreatorDto, stream: LiveStreamDto, now: Instant, site: FloatplaneSite = FloatplaneSite.FLOATPLANE) = VideoItem(
+        source = site.key,
         remoteId = liveId(creator.id),
         channelId = creator.id,
         channelName = creator.title,

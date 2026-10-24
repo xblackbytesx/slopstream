@@ -79,7 +79,47 @@ data class SourceCapabilities(
     val accountSubscriptions: Boolean = false,
     /** Resolving playback is cheap enough to do on focus. Off where the service rate limits it. */
     val prefetchPlayback: Boolean = true,
+    /**
+     * Every channel is listed ([ContentSource.catalog]): adding one is picking from that list,
+     * with "Add all". Sauce+, whose one subscription covers its whole (small) catalog.
+     */
+    val catalog: Boolean = false,
+    /** Other apps' subscription exports can be imported (NewPipe, Google Takeout). */
+    val importsSubscriptions: Boolean = false,
+    /** A video's comments can be read ([ContentSource.comments]), when the user turns them on. */
+    val hasComments: Boolean = false,
 )
+
+/**
+ * One comment, as plain text. Loaded only when someone opens a video's comments, kept only in
+ * memory while they are open, never stored.
+ */
+data class Comment(
+    val id: String,
+    val author: String,
+    val avatarUrl: String?,
+    val text: String,
+    /** Null when the service does not say. */
+    val likes: Int?,
+    /** As the service words it ("3 days ago"). */
+    val published: String?,
+    val replyCount: Int,
+    val pinned: Boolean,
+    val heartedByUploader: Boolean,
+    val byUploader: Boolean,
+    /** Where its replies start; null without replies. */
+    val replies: CommentsPage.Cursor?,
+)
+
+data class CommentsPage(
+    val comments: List<Comment>,
+    val next: Cursor?,
+    /** The uploader turned comments off. */
+    val disabled: Boolean = false,
+) {
+    /** Where a page starts. Opaque: only the source that made it reads it. */
+    class Cursor(val handle: Any)
+}
 
 /** A subscription read from another app's export, before it is stored. */
 data class ImportedSubscription(

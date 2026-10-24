@@ -1,0 +1,79 @@
+name: CI
+
+# Every push and pull request: the same tests as `make test` (JVM, Robolectric and
+# screenshot tests, all offline) plus a debug build. The live smoke tests stay out: they
+# need the network and, for Floatplane and Sauce+, your own sessions.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    # No `container:`: JS actions need node, which the runner image has.
+    runs-on: ubuntu-latest
+    env:
+      # Keep in lockstep with docker/Dockerfile. AGP also wants build-tools 36.
+      CMDLINE_TOOLS_VERSION: "16111833"
+      ANDROID_PLATFORM: android-37.0
+      BUILD_TOOLS_VERSION: "37.0.0"
+      AGP_BUILD_TOOLS_VERSION: "36.0.0"
+      GRADLE_VERSION: "9.8.0"
+      ANDROID_HOME: /opt/android-sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            /opt/android-sdk
+            /opt/gradle
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: slopstream-android-${{ hashFiles('gradle/libs.versions.toml', 'gradle/verification-metadata.xml', 'app/build.gradle.kts') }}
+          restore-keys: slopstream-android-
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Android SDK and Gradle
+        run: |
+          set -euo pipefail
+          # act_runner images run as root without sudo; hosted ones have it.
+          SUDO=$(command -v sudo || true)
+          $SUDO mkdir -p /opt/android-sdk /opt/gradle && $SUDO chown -R "$(id -u)" /opt/android-sdk /opt/gradle
+          if [ ! -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
+            curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS_VERSION}_latest.zip" -o /tmp/ct.zip
+            mkdir -p "$ANDROID_HOME/cmdline-tools"
+            unzip -q /tmp/ct.zip -d "$ANDROID_HOME/cmdline-tools"
+            mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          fi
+          # `yes` is killed by SIGPIPE when sdkmanager stops reading (exit 141), which
+          # pipefail would count as a failure: here only sdkmanager's own status counts.
+          set +o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" "platforms;${ANDROID_PLATFORM}" "build-tools;${BUILD_TOOLS_VERSION}" "build-tools;${AGP_BUILD_TOOLS_VERSION}" > /dev/null
+          set -o pipefail
+          if [ ! -d "/opt/gradle/gradle-${GRADLE_VERSION}" ]; then
+            curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /opt/gradle
+          fi
+          echo "/opt/gradle/gradle-${GRADLE_VERSION}/bin" >> "$GITHUB_PATH"
+
+      - name: Tests
+        run: gradle --no-daemon :core:test :source-youtube:test :source-floatplane:test :app:testDebugUnitTest
+
+      - name: Debug build
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Keep the test reports when something failed
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-reports
+          path: |
+            */build/reports/tests/
+            app/build/screenshots/

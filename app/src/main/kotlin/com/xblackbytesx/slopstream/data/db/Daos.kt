@@ -38,13 +38,32 @@ interface SubscriptionDao {
     fun observe(source: String, remoteId: String): Flow<SubscriptionEntity?>
 
     @Upsert
-    suspend fun upsert(rows: List<SubscriptionEntity>)
+    suspend fun upsertRaw(rows: List<SubscriptionEntity>)
+
+    /** A local change: keeps the sync bookkeeping and marks the rows unsynced. */
+    @Transaction
+    suspend fun upsert(rows: List<SubscriptionEntity>) {
+        upsertRaw(
+            rows.map { r ->
+                val old = get(r.source, r.remoteId)
+                r.copy(
+                    rev = old?.rev,
+                    localVersion = (old?.localVersion ?: 0) + 1,
+                    syncedVersion = old?.syncedVersion ?: 0,
+                    feedRev = old?.feedRev ?: 0,
+                )
+            },
+        )
+    }
 
     @Query("UPDATE subscription SET lastRefreshAt = :at, lastError = :error WHERE source = :source AND remoteId = :remoteId")
     suspend fun markRefreshed(source: String, remoteId: String, at: Long, error: String?)
 
     @Query("UPDATE subscription SET name = :name WHERE source = :source AND remoteId = :remoteId AND name != :name")
     suspend fun rename(source: String, remoteId: String, name: String)
+
+    @Query("UPDATE subscription SET feedRev = :rev WHERE source = :source AND remoteId = :remoteId")
+    suspend fun setFeedRev(source: String, remoteId: String, rev: Long)
 }
 
 @Dao
@@ -55,7 +74,7 @@ interface FeedDao {
         SELECT $VIDEO_ROW_COLUMNS
         FROM feed_item f
         JOIN subscription s ON s.source = f.source AND s.remoteId = f.channelId AND s.deletedAt IS NULL
-        LEFT JOIN watch_state w ON w.source = f.source AND w.remoteId = f.remoteId
+        LEFT JOIN watch_state w ON w.source = f.source AND w.remoteId = f.remoteId AND w.deletedAt IS NULL
         LEFT JOIN watch_later l ON l.source = f.source AND l.remoteId = f.remoteId
         WHERE f.source = :source AND f.kind IN (:kinds)
         ORDER BY f.publishedAt DESC, f.remoteId
@@ -67,7 +86,7 @@ interface FeedDao {
         """
         SELECT $VIDEO_ROW_COLUMNS
         FROM feed_item f
-        LEFT JOIN watch_state w ON w.source = f.source AND w.remoteId = f.remoteId
+        LEFT JOIN watch_state w ON w.source = f.source AND w.remoteId = f.remoteId AND w.deletedAt IS NULL
         LEFT JOIN watch_later l ON l.source = f.source AND l.remoteId = f.remoteId
         WHERE f.source = :source AND f.channelId = :channelId AND f.kind IN (:kinds)
         ORDER BY f.publishedAt DESC, f.remoteId
@@ -81,7 +100,7 @@ interface FeedDao {
         SELECT $VIDEO_ROW_COLUMNS
         FROM feed_item f
         JOIN subscription s ON s.source = f.source AND s.remoteId = f.channelId AND s.deletedAt IS NULL
-        LEFT JOIN watch_state w ON w.source = f.source AND w.remoteId = f.remoteId
+        LEFT JOIN watch_state w ON w.source = f.source AND w.remoteId = f.remoteId AND w.deletedAt IS NULL
         LEFT JOIN watch_later l ON l.source = f.source AND l.remoteId = f.remoteId
         WHERE f.source = :source AND f.kind = 'SHORT'
         ORDER BY f.publishedAt DESC, f.remoteId
@@ -102,6 +121,10 @@ interface FeedDao {
 
     @Upsert
     suspend fun upsert(rows: List<FeedItemEntity>)
+
+    /** An item the server says is gone (an ended livestream). */
+    @Query("DELETE FROM feed_item WHERE source = :source AND remoteId = :remoteId")
+    suspend fun delete(source: String, remoteId: String)
 
     @Query("UPDATE feed_item SET durationSec = :durationSec WHERE source = :source AND remoteId = :remoteId")
     suspend fun setDuration(source: String, remoteId: String, durationSec: Long)
@@ -147,7 +170,25 @@ interface WatchDao {
     suspend fun state(source: String, remoteId: String): WatchStateEntity?
 
     @Upsert
-    suspend fun upsertState(row: WatchStateEntity)
+    suspend fun upsertStateRaw(row: WatchStateEntity)
+
+    /** A local change: keeps the sync bookkeeping and marks the row unsynced. */
+    @Transaction
+    suspend fun upsertState(row: WatchStateEntity) {
+        val old = state(row.source, row.remoteId)
+        upsertStateRaw(row.copy(rev = old?.rev, localVersion = (old?.localVersion ?: 0) + 1, syncedVersion = old?.syncedVersion ?: 0))
+    }
+
+    /** What a history entry shows, from the feed cache or Watch later. */
+    @Query(
+        """
+        SELECT title, channelId, channelName, thumbnailUrl, kind FROM feed_item WHERE source = :source AND remoteId = :remoteId
+        UNION ALL
+        SELECT title, channelId, channelName, thumbnailUrl, kind FROM watch_later WHERE source = :source AND remoteId = :remoteId
+        LIMIT 1
+        """,
+    )
+    suspend fun meta(source: String, remoteId: String): VideoMeta?
 
     @Query(
         """
@@ -156,18 +197,140 @@ interface WatchDao {
             w.positionMs AS positionMs, w.durationMs AS watchDurationMs, w.watched AS watched,
             1 AS inWatchLater
         FROM watch_later l
-        LEFT JOIN watch_state w ON w.source = l.source AND w.remoteId = l.remoteId
+        LEFT JOIN watch_state w ON w.source = l.source AND w.remoteId = l.remoteId AND w.deletedAt IS NULL
         WHERE l.source = :source AND l.deletedAt IS NULL
         ORDER BY l.addedAt DESC
         """,
     )
     fun pageWatchLater(source: String): PagingSource<Int, VideoRow>
 
+    /** What was watched on this service, last watched first; display fields from the history row. */
+    @Query(
+        """
+        SELECT w.source, w.remoteId,
+            COALESCE(w.channelId, f.channelId, '') AS channelId, COALESCE(w.channelName, f.channelName, '') AS channelName,
+            COALESCE(w.title, f.title, w.remoteId) AS title, COALESCE(f.publishedAt, w.updatedAt) AS publishedAt,
+            COALESCE(w.kind, f.kind, 'VIDEO') AS kind, COALESCE(w.thumbnailUrl, f.thumbnailUrl) AS thumbnailUrl,
+            COALESCE(f.durationSec, w.durationMs / 1000) AS durationSec, 0 AS dateApproximate,
+            w.positionMs AS positionMs, w.durationMs AS watchDurationMs, w.watched AS watched,
+            (l.remoteId IS NOT NULL AND l.deletedAt IS NULL) AS inWatchLater
+        FROM watch_state w
+        LEFT JOIN feed_item f ON f.source = w.source AND f.remoteId = w.remoteId
+        LEFT JOIN watch_later l ON l.source = w.source AND l.remoteId = w.remoteId
+        WHERE w.source = :source AND w.deletedAt IS NULL
+        ORDER BY w.updatedAt DESC
+        """,
+    )
+    fun pageHistory(source: String): PagingSource<Int, VideoRow>
+
     @Query("SELECT * FROM watch_later WHERE source = :source AND remoteId = :remoteId")
     suspend fun watchLater(source: String, remoteId: String): WatchLaterEntity?
 
     @Upsert
-    suspend fun upsertWatchLater(row: WatchLaterEntity)
+    suspend fun upsertWatchLaterRaw(row: WatchLaterEntity)
+
+    /** A local change: keeps the sync bookkeeping and marks the row unsynced. */
+    @Transaction
+    suspend fun upsertWatchLater(row: WatchLaterEntity) {
+        val old = watchLater(row.source, row.remoteId)
+        upsertWatchLaterRaw(row.copy(rev = old?.rev, localVersion = (old?.localVersion ?: 0) + 1, syncedVersion = old?.syncedVersion ?: 0))
+    }
+}
+
+/** A video's display fields, for its history entry. */
+data class VideoMeta(
+    val title: String,
+    val channelId: String,
+    val channelName: String,
+    val thumbnailUrl: String?,
+    val kind: String,
+)
+
+/**
+ * The sync engine's view of the synced tables: unsynced rows out, server rows in. A row is
+ * unsynced while `localVersion > syncedVersion`; server rows are written with both equal, so
+ * applying them never marks anything for sending.
+ */
+@Dao
+interface SyncDao {
+    @Query("SELECT * FROM subscription WHERE localVersion > syncedVersion LIMIT :limit")
+    suspend fun unsyncedSubscriptions(limit: Int): List<SubscriptionEntity>
+
+    @Query("SELECT * FROM watch_later WHERE localVersion > syncedVersion LIMIT :limit")
+    suspend fun unsyncedWatchLater(limit: Int): List<WatchLaterEntity>
+
+    @Query("SELECT * FROM watch_state WHERE localVersion > syncedVersion LIMIT :limit")
+    suspend fun unsyncedWatchState(limit: Int): List<WatchStateEntity>
+
+    @Query(
+        """
+        SELECT (SELECT COUNT(*) FROM subscription WHERE localVersion > syncedVersion)
+             + (SELECT COUNT(*) FROM watch_later WHERE localVersion > syncedVersion)
+             + (SELECT COUNT(*) FROM watch_state WHERE localVersion > syncedVersion)
+        """,
+    )
+    fun observeUnsynced(): Flow<Int>
+
+    /** The version that was sent is on the server now; a newer local edit stays unsynced. */
+    @Query("UPDATE subscription SET syncedVersion = :version WHERE source = :source AND remoteId = :remoteId AND syncedVersion < :version")
+    suspend fun sentSubscription(source: String, remoteId: String, version: Long)
+
+    @Query("UPDATE watch_later SET syncedVersion = :version WHERE source = :source AND remoteId = :remoteId AND syncedVersion < :version")
+    suspend fun sentWatchLater(source: String, remoteId: String, version: Long)
+
+    @Query("UPDATE watch_state SET syncedVersion = :version WHERE source = :source AND remoteId = :remoteId AND syncedVersion < :version")
+    suspend fun sentWatchState(source: String, remoteId: String, version: Long)
+
+    /** The server has what this device sent; a newer local edit builds on that rev. */
+    @Query("UPDATE subscription SET rev = :rev WHERE source = :source AND remoteId = :remoteId")
+    suspend fun rebaseSubscription(source: String, remoteId: String, rev: Long?)
+
+    @Query("UPDATE watch_later SET rev = :rev WHERE source = :source AND remoteId = :remoteId")
+    suspend fun rebaseWatchLater(source: String, remoteId: String, rev: Long?)
+
+    @Query("UPDATE watch_state SET rev = :rev WHERE source = :source AND remoteId = :remoteId")
+    suspend fun rebaseWatchState(source: String, remoteId: String, rev: Long?)
+
+    @Query("SELECT * FROM subscription WHERE source = :source AND remoteId = :remoteId")
+    suspend fun subscription(source: String, remoteId: String): SubscriptionEntity?
+
+    @Query("SELECT * FROM watch_later WHERE source = :source AND remoteId = :remoteId")
+    suspend fun watchLater(source: String, remoteId: String): WatchLaterEntity?
+
+    @Query("SELECT * FROM watch_state WHERE source = :source AND remoteId = :remoteId")
+    suspend fun watchState(source: String, remoteId: String): WatchStateEntity?
+
+    @Upsert
+    suspend fun putSubscription(row: SubscriptionEntity)
+
+    @Upsert
+    suspend fun putWatchLater(row: WatchLaterEntity)
+
+    @Upsert
+    suspend fun putWatchState(row: WatchStateEntity)
+
+    /** A new server, or one restored from an older backup: everything goes up again. */
+    @Query("UPDATE subscription SET rev = NULL, localVersion = syncedVersion + 1")
+    suspend fun resendSubscriptions()
+
+    @Query("UPDATE watch_later SET rev = NULL, localVersion = syncedVersion + 1")
+    suspend fun resendWatchLater()
+
+    @Query("UPDATE watch_state SET rev = NULL, localVersion = syncedVersion + 1")
+    suspend fun resendWatchState()
+
+    /**
+     * "Replace this device's library with the server's": the one hard delete, chosen by the
+     * user when connecting; the server's copy comes right after.
+     */
+    @Query("DELETE FROM subscription")
+    suspend fun clearSubscriptions()
+
+    @Query("DELETE FROM watch_later")
+    suspend fun clearWatchLater()
+
+    @Query("DELETE FROM watch_state")
+    suspend fun clearWatchState()
 }
 
 /**
@@ -189,7 +352,7 @@ object LibrarySearch {
         SELECT $VIDEO_ROW_COLUMNS
         FROM feed_item f
         JOIN subscription s ON s.source = f.source AND s.remoteId = f.channelId AND s.deletedAt IS NULL
-        LEFT JOIN watch_state w ON w.source = f.source AND w.remoteId = f.remoteId
+        LEFT JOIN watch_state w ON w.source = f.source AND w.remoteId = f.remoteId AND w.deletedAt IS NULL
         LEFT JOIN watch_later l ON l.source = f.source AND l.remoteId = f.remoteId
         WHERE $where
         ORDER BY f.publishedAt DESC, f.remoteId
@@ -205,7 +368,7 @@ object LibrarySearch {
             w.positionMs AS positionMs, w.durationMs AS watchDurationMs, w.watched AS watched,
             1 AS inWatchLater
         FROM watch_later f
-        LEFT JOIN watch_state w ON w.source = f.source AND w.remoteId = f.remoteId
+        LEFT JOIN watch_state w ON w.source = f.source AND w.remoteId = f.remoteId AND w.deletedAt IS NULL
         WHERE f.deletedAt IS NULL AND $where
         ORDER BY f.publishedAt DESC, f.remoteId
         LIMIT $LIMIT

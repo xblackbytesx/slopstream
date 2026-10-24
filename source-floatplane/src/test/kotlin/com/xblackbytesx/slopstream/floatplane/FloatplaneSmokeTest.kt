@@ -26,8 +26,8 @@ import kotlin.time.Duration.Companion.minutes
  *    link on any device) and caches the tokens in `.secrets/floatplane-tokens.json`.
  *  - `FP_BEARER`: an access token copied from your own signed-in browser session.
  *  - `FP_SESSION`: the `sails.sid` cookie value from your own signed-in browser session.
- * The last two exist only for this spike, until Floatplane registers a client id; the app
- * only ever signs in with the device login.
+ *  - `SP_SESSION`: the same for Sauce+ (www.sauceplus.com), which runs Floatplane's platform
+ *    with its own accounts; there the cookie is `__Host-sp-sess`. Runs the same report.
  *
  * The delivery endpoint is rate limited, so the report makes three delivery calls, 31 s apart.
  */
@@ -49,7 +49,15 @@ class FloatplaneSmokeTest {
     private fun redact(s: String) = s.replace(Regex("(token|Signature|Policy|Key-Pair-Id|hdnts|hdnea)=[^&\\s\"]+"), "$1=<redacted>")
     private fun section(title: String) = println("\n=== $title")
 
+    /** Sauce+ when `SP_SESSION` is set: same platform, its own site and accounts. */
+    private val sauce = !System.getenv("SP_SESSION").isNullOrBlank()
+    private val baseUrl = if (sauce) "https://www.sauceplus.com" else Floatplane.BASE_URL
+
     private suspend fun authorizer(): Pair<String, FloatplaneAuthorizer>? {
+        System.getenv("SP_SESSION")?.takeIf { it.isNotBlank() }?.let { c ->
+            // Sauce+ names Floatplane's sails.sid "__Host-sp-sess" (seen in the user's browser 2026-10-23).
+            return "SP_SESSION cookie (Sauce+)" to FloatplaneAuthorizer { it.header("Cookie", "__Host-sp-sess=${c.removePrefix("__Host-sp-sess=").trim()}") }
+        }
         val clientId = System.getenv("FP_CLIENT_ID")?.takeIf { it.isNotBlank() }
         if (clientId != null) {
             val auth = FloatplaneAuth(client, clientId)
@@ -79,26 +87,43 @@ class FloatplaneSmokeTest {
     @Test
     fun report() = runTest(timeout = 15.minutes) {
         val (how, authz) = authorizer() ?: run {
-            println("Floatplane smoke skipped: set FP_CLIENT_ID, FP_BEARER or FP_SESSION (see FloatplaneSmokeTest).")
+            println("Floatplane smoke skipped: set FP_CLIENT_ID, FP_BEARER, FP_SESSION or SP_SESSION (see FloatplaneSmokeTest).")
             assumeTrue(false)
             return@runTest
         }
-        val api = FloatplaneApi(client, authz)
+        val api = FloatplaneApi(client, authz, baseUrl)
         val source = FloatplaneSource(api)
         val findings = mutableListOf<String>()
+        findings += "site=$baseUrl"
 
         section("Auth via $how")
-        val self = api.self()
+        val self = try {
+            api.self()
+        } catch (e: SourceException) {
+            // A Cloudflare challenge page instead of JSON shows up here as "unexpected".
+            findings += "self failed: ${e.message?.take(160)}"
+            println("FINDINGS\n" + findings.joinToString("\n") { "  - $it" })
+            throw e
+        }
         println("signed in as ${self.username}")
 
         section("Subscriptions")
         val subs = api.subscriptions()
         subs.forEach { println("  creator=${it.creator} plan='${it.plan.title}' ends=${it.endDate} cancelled=${it.paymentCancelled}") }
-        findings += "subscriptions=${subs.size} distinct creators=${subs.map { it.creator }.distinct().size}"
-        assumeTrue("no subscriptions on this account", subs.isNotEmpty())
+        findings += "subscriptions=${subs.size} distinct creators=${subs.map { it.creator }.distinct().size} plans=${subs.map { it.plan.title }.distinct()}"
+
+        // Sauce+ sells one subscription for every creator ("global"): what does the list say?
+        section("Creator list (search=\"\")")
+        val listed = runCatching { api.creators() }
+        listed.onSuccess { list -> list.forEach { println("  ${it.title} (${it.id}, /${it.urlname}) liveStream=${it.liveStream != null}") } }
+            .onFailure { println("  failed: ${it.message}") }
+        findings += "creator list: " + (listed.getOrNull()?.let { "${it.size} creators" } ?: "failed (${listed.exceptionOrNull()?.message?.take(80)})")
+
+        val creatorIds = subs.map { it.creator }.distinct().ifEmpty { listed.getOrNull().orEmpty().map { it.id }.take(3) }
+        assumeTrue("no subscriptions and no creators", creatorIds.isNotEmpty())
 
         section("Creators and sub-channels")
-        val creators = subs.map { it.creator }.distinct().map { api.creator(it) }
+        val creators = creatorIds.map { api.creator(it) }
         val channels = api.channels(creators.map { it.id })
         for (c in creators) {
             println("  ${c.title} (${c.id}, /${c.urlname}) icon=${c.icon != null} liveStream=${c.liveStream?.let { "${it.id} '${it.title}' channel=${it.channel} offline=${it.offline?.toString()?.take(120)}" }}")
@@ -229,8 +254,29 @@ class FloatplaneSmokeTest {
         val signedIn = client.newCall(keyRequest().also { authz.authorize(it) }.build()).execute().use { r -> Triple(r.code, r.header("Content-Type"), r.body.bytes()) }
         println("  key with credentials: HTTP ${signedIn.first} ${signedIn.second} ${signedIn.third.size} bytes")
         findings += "AES key: without credentials HTTP ${bare.first}/${bare.third.size}B, with credentials HTTP ${signedIn.first}/${signedIn.third.size}B"
+        if (bare.first == 403) findings += "AES key refusal reason: ${errorNames(bare.third.decodeToString())}"
 
-        val key = listOf(bare, signedIn).firstOrNull { it.first in 200..299 && it.third.size == 16 }?.third
+        // What a browser on this site sends: its Origin and Referer, no credentials (the Sauce+
+        // player uses withCredentials=false). And the same path on this site with the session.
+        val site = baseUrl.toHttpUrl()
+        val origin = "${site.scheme}://${site.host}"
+        val fromSite = client.newCall(keyRequest().header("Origin", origin).header("Referer", "$origin/").build()).execute()
+            .use { r -> Triple(r.code, r.header("Content-Type"), r.body.bytes()) }
+        println("  key with Origin $origin: HTTP ${fromSite.first} ${fromSite.second} ${fromSite.third.size} bytes")
+        findings += "AES key with Origin/Referer of the site: HTTP ${fromSite.first}/${fromSite.third.size}B"
+        val sameSite = if (keyUri.host != site.host) {
+            val onSite = keyUri.newBuilder().host(site.host).build()
+            client.newCall(Request.Builder().url(onSite).header("User-Agent", Floatplane.USER_AGENT).also { authz.authorize(it) }.build()).execute()
+                .use { r -> Triple(r.code, r.header("Content-Type"), r.body.bytes()) }
+                .also {
+                    println("  key path on ${site.host} with credentials: HTTP ${it.first} ${it.second} ${it.third.size} bytes")
+                    findings += "AES key path on ${site.host} with credentials: HTTP ${it.first}/${it.third.size}B"
+                }
+        } else {
+            null
+        }
+
+        val key = listOfNotNull(bare, signedIn, fromSite, sameSite).firstOrNull { it.first in 200..299 && it.third.size == 16 }?.third
         if (key == null || segment.first !in 200..299) {
             findings += "AES: no usable 16-byte key, could not test decryption"
             return

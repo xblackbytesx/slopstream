@@ -18,9 +18,12 @@ Verified: JVM + Robolectric tests, `make smoke` against live YouTube from the sa
 release builds. First device test by the user 2026-10-22: works well. Channel search crashed on
 Android 11 until desugaring was enabled (see Invariants).
 
-Floatplane (2026-10-23): wired into the app (decision 16). Live report run twice against the
-user's account (findings in decision 13). Sign-in, feeds, playback and live are built and
-covered offline; **not yet tested on a device**.
+Floatplane (2026-10-23): wired into the app (decision 16) and working on the user's Shield,
+Sauce+ too (decision 17).
+
+Sync server (2026-10-23, decision 18): the app side is built and covered offline against a fake
+server; the server (`/workspace/slopstream-server`) has its own Postgres integration tests.
+**Not yet run together on a device.**
 
 ## Build and verify
 
@@ -33,10 +36,14 @@ with caches outside the repo and no committed `local.properties`.
 - `make smoke`: live checks against YouTube. Run it first whenever playback or feeds break.
 - `make smoke-floatplane`: read-only report from the user's own Floatplane account. Needs
   `FP_CLIENT_ID` (device login, tokens cached in the git-ignored `.secrets/`), or for the
-  spike only `FP_BEARER` / `FP_SESSION` from their own browser session. Never writes.
+  spike only `FP_BEARER` / `FP_SESSION` from their own browser session; `SP_SESSION`
+  (`__Host-sp-sess`) runs it against Sauce+. Never writes.
 - `make screenshots`: phone (`w411dp-h891dp-port-xxhdpi`) and TV
   (`w960dp-h540dp-land-television-xhdpi`) renders. Look at them after UI changes.
 - Kotlin warnings stay at zero.
+- CI (`.gitea/workflows/ci.yml`): the `make test` suites plus a debug build on every push.
+  `release.yml` on a `vX.Y.Z` tag: tests, then a signed release APK attached to the Gitea
+  release (Obtainium); secrets listed in its header. The smoke tests never run in CI.
 
 ## Modules
 
@@ -44,7 +51,7 @@ with caches outside the repo and no committed `local.properties`.
 |---|---|---|
 | `:core` | JVM | Domain model keyed by `(SourceKey, remoteId)`, `ContentSource` contract, `StreamSelector`, `DeviceProfile`, `PlaybackPlan`. No Android, no network. |
 | `:source-youtube` | JVM | NewPipeExtractor wrapper (`YoutubeSource`), `RssFeedFetcher`, `StreamPlanner` (itag to DASH manifest), `StreamRequests` (googlevideo request shape), import parsers. |
-| `:source-floatplane` | JVM | `FloatplaneAuth` (OAuth device flow, for when a client id exists), `FloatplaneApi` (REST, `SessionAuthorizer`/`TokenAuthorizer`), `FloatplaneMapping` (pure), `FloatplaneSource`. |
+| `:source-floatplane` | JVM | Floatplane's platform, Floatplane and Sauce+ (`FloatplaneSite`): `FloatplaneAuth` (OAuth device flow, for when a client id exists), `FloatplaneApi` (REST, `SessionAuthorizer`/`TokenAuthorizer`), `FloatplaneMapping` (pure), `FloatplaneSource`. |
 | `:app` | Android | Compose UI, Hilt, Room, DataStore, Media3, WorkManager, PoToken WebView, device check, LAN import server. |
 
 A new service is a new JVM module implementing `ContentSource`, registered in
@@ -161,6 +168,70 @@ A new service is a new JVM module implementing `ContentSource`, registered in
       when its playlist answers 200. `ChannelFeed.completeKinds` drops it once offline is
       certain (404); an unanswered check leaves it.
 
+17. **Sauce+** (2026-10-23) is a second `FloatplaneSite` on the same module: one
+    `FloatplaneSource` per site (`FloatplaneSites`), the same sign-in screen and storage.
+    - Its one membership covers every creator, so the account lists no subscriptions. The
+      user decided: **pick creators from the catalog** (`creator/list`), with an "Add all"
+      button, followed locally like YouTube channels (capability `catalog`). Signing out
+      keeps those picks for the next sign-in, since they are the user's own choice.
+    - Session cookie `__Host-sp-sess`; no live (`hasLive = false`), no imports.
+    - Playback: `PlaybackPlan.Manifest.hostRewrites` sends the playlist's
+      www.floatplane.com key requests to www.sauceplus.com, with the session.
+
+18. **Sync server** (2026-10-23; the contract is `/workspace/slopstream-server/AGENTS.md`):
+    optional, one library per person, the server leads.
+    - **What syncs**: `subscription`, `watch_later`, `watch_state` (progress, and history
+      through its display fields and `deletedAt`, schema 3) and the person's own Floatplane
+      and Sauce+ sessions. Feed items and settings do not.
+    - **Bookkeeping** (schema 3): `rev` (the server's, null until synced), `localVersion`
+      and `syncedVersion`. Every repository write goes through the DAO's `upsert*`, which
+      keeps the bookkeeping and bumps `localVersion`; server rows are written through
+      `SyncDao` with both versions equal, so applying them never marks anything unsynced.
+    - **A sync** (`SyncEngine`): send the unsynced rows (500 per kind) with their rev as
+      `baseRev`, apply the answer as is, store the cursor. A row edited while the request was
+      out keeps the edit; if the server took what was sent, the edit's base becomes that rev
+      (`rebase*`), else the next round is a conflict. `reset` (the server is behind the
+      cursor) resends everything.
+    - **When** (`SyncScheduler`): coming to the front, every minute while in front, 5 s after
+      a local change, after a sign-in or sign-out. Never in the background.
+    - **Connecting**: the address must be https (plain http only to a LAN address, with a
+      warning). Pair with a code shown on the device, or paste a token (phones). Merge
+      (default: everything here goes up with base rev 0) or replace (the one hard delete,
+      chosen by the user). Disconnecting keeps the library and the sign-ins.
+    - **Sessions**: a WebView sign-in queues a PUT (`SyncConfig.pending`) so a failed upload
+      never makes the next sync forget the fresh sign-in; sign-out queues a DELETE and means
+      everywhere. The server's list replaces this device's: a value arrives only when the
+      fingerprint differs, a missing service is signed out here (account follows tombstoned).
+      On the first sync after connecting, local sessions the server lacks go up instead.
+      A service refusal on this device is reported with the fingerprint (`Accounts.expired`).
+    - The History screen (from Watch later) lists `watch_state` of the current service.
+
+19. **The server fetches the video lists** (2026-10-24, server 0.2.0; its AGENTS.md
+    "Feeds"). Lists only: playback always resolves here (IP-bound googlevideo URLs,
+    PoToken, Floatplane's rate-limited delivery).
+    - `ServerFeed.pull` sends every followed channel of a signed-in service with its
+      `subscription.feedRev` (schema 4, cache), applies the answer through `FeedDao.merge`
+      (durations kept), deletes tombstoned items, renames channels and sets
+      `lastRefreshAt` from the server's `lastOkAt`.
+    - `FeedRepository.refreshAll` pulls first and fetches here only what the server lacks
+      fresh (no status, or none in 2 h). No server, or an unreachable one, means everything
+      is fetched here as before. `refreshNow` (pull-to-refresh, the TV button) asks the
+      server to fetch first; the 1-minute tick while the app is open pulls only.
+    - `feed_item` stays a cache, filled from either side; the last good copy rule holds.
+
+20. **Comments** (2026-10-24): on demand, on the device, off by default (Settings, "Comments").
+    Not the server's job: it has no extractor, and a store of every video's threads would be
+    big, stale and mostly unread.
+    - `ContentSource.comments(videoId, cursor)` with `SourceCapabilities.hasComments`; YouTube
+      through NewPipeExtractor's `CommentsInfo` (pages, replies, pinned, hearted), the text made
+      plain by `CommentText`. YouTube's own order: it ranks within one video, never the feeds.
+    - Opened from the player (a Comments button; a side sheet on TV, the lower part on phones,
+      the video keeps playing; Back closes it) or the video menu (`CommentsRoute`).
+    - `CommentsLoader` holds pages in memory only, loads the first page when opened and the
+      rest when asked; nothing is written anywhere.
+    - `make smoke` checks a first page, a second page and replies. Floatplane comments: later.
+    - History stays where it is (the user's call, 2026-10-24): a button on Watch later.
+
 ## Invariants
 
 - **No algorithmic content.** Feeds hold only subscribed channels; ordering is publish date
@@ -169,15 +240,26 @@ A new service is a new JVM module implementing `ContentSource`, registered in
 - **Last good copy.** A failed or blocked refresh never deletes cached items. A
   `SourceBlockedException` (429/403/bot check) stops the whole run.
 - **Sync-ready rows.** `subscription`, `watch_state`, `watch_later` carry `updatedAt`,
-  `deletedAt` (tombstone, never hard delete) and `deviceId`. `feed_item` is cache.
+  `deletedAt` (tombstone, never hard delete) and `deviceId`. `feed_item` is cache, filled by
+  this device or from the sync server's lists (decision 19); `subscription.feedRev` too.
 - **Imports only add.** An export never unsubscribes anything. (Account subscriptions mirror
   the account instead, decision 16.)
-- **Service credentials** never leave `Accounts` and the requests that need them: never logged,
-  printed, synced or put in a URL; headers go only to the hosts a plan names.
+- **Service credentials** never leave `Accounts` and the requests that need them, except to the
+  user's own sync server (decision 18, https or a LAN address the user accepted): never
+  logged, printed or put in a URL; headers go only to the hosts a plan names. The sync token
+  lives in the same Keystore-encrypted store.
+- **The server leads.** What a sync returns is applied as is, except rows edited here while
+  the request was out (`SyncEngineTest`). Never write synced tables around the DAO's
+  `upsert*` (the change would never be sent) or put server rows through it (they would be
+  sent back).
 - **Core library desugaring stays on** (`desugar_jdk_libs_nio`). NewPipeExtractor calls Java
   10+ APIs such as `URLEncoder.encode(String, Charset)` that Android lacks below API 33;
   without it, channel search crashes with `NoSuchMethodError` on the Shield (Android 11).
   JVM tests can't catch this.
+- **Back lands where you were (TV).** List screens hold their grid's scroll state themselves
+  (the grid leaves composition for a frame while a list reloads) and remember the tile last
+  played or opened; `VideoGrid(restoreFocusKey)` scrolls to it and focuses it on return, so
+  focus never falls to the rail (`GridFocusTest`). Search does the same for its tiles.
 - Screens split ViewModel wiring from stateless pieces where tests need them
   (`AppChrome`, `VideoGrid`, `VideoTile`, `ProfileSummary`).
 
@@ -196,6 +278,19 @@ keep only the TeamNewPipe entries it adds, then `make smoke`. Check NewPipe's
 2. Channel-tab enrichment for durations and upcoming premieres; channel avatars on import.
 3. Floatplane: device testing; request Slopstream's own client id from Floatplane and switch
    to the device-code login; sub-channel filter; Floatplane's own progress on tiles.
-4. Sync server (Rust/axum/Postgres like quantifyme-v2): subscriptions, watch state, watch
-   later, last writer wins on `updatedAt`. NewPipe history import.
-5. Sauce+ (check whether it shares Floatplane's backend first).
+4. Sync server: built 2026-10-23 (decision 18), server-fetched lists 2026-10-24 (decision 19,
+   0.2.0). Next: device test with two devices; long-poll so website changes and fresh lists
+   arrive at once; NewPipe history import; optional server thumbnail proxy (server roadmap).
+5. Sauce+. Checked 2026-10-23: www.sauceplus.com serves the same frontend build as
+   Floatplane with a branding config, so the same API and website sign-in apply; the
+   session cookie is named `__Host-sp-sess` there instead of `sails.sid`. Differences in that config: its own accounts (Keycloak realm `sauceplus`,
+   company Open Sauce Inc.), `usesGlobalSubscriptions: true` (one subscription for every
+   creator), `isLiveStreamEnabled: false`. Cloudflare challenged plain requests from the
+   sandbox, but not the user's home network.
+   Live report 2026-10-23 (`SP_SESSION`): `user/subscriptions` is **empty**, `creator/list`
+   lists all 28 creators, every post `isAccessible`; one sub-channel per creator; H.264
+   360p to 1080p at 23.98 fps on Floatplane's CDN (`/SP-Videos/`); progress works (86,
+   100). The AES key URL points at **www.floatplane.com** `watchKey`, which refuses the
+   Sauce+ session (403 `notLoggedInError`, also with the Sauce+ Origin); the **same path on
+   www.sauceplus.com** with the session returns the 16-byte key, which decrypts to valid
+   MPEG-TS. Built 2026-10-23 as decision 17; works on the user's Shield the same day.

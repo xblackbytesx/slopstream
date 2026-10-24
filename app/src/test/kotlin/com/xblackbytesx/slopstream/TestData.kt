@@ -17,7 +17,7 @@ import com.xblackbytesx.slopstream.data.db.VideoRow
 import java.time.Instant
 
 /** A [ContentSource] whose feeds come from a map; channels missing from it throw. */
-class FakeSource(
+open class FakeSource(
     var feeds: MutableMap<String, () -> ChannelFeed> = mutableMapOf(),
     override val key: SourceKey = SourceKey.YOUTUBE,
     override val capabilities: SourceCapabilities =

@@ -19,7 +19,13 @@ import coil3.annotation.ExperimentalCoilApi
 import coil3.asImage
 import coil3.compose.AsyncImagePreviewHandler
 import coil3.compose.LocalAsyncImagePreviewHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import com.xblackbytesx.slopstream.core.Channel
 import com.xblackbytesx.slopstream.core.SourceKey
 import com.xblackbytesx.slopstream.core.playback.DecoderCaps
@@ -216,5 +222,76 @@ class ScreenshotTest {
                 matchFrameRate = true,
             ),
         )
+    }
+
+    @Composable
+    private fun connect(step: com.xblackbytesx.slopstream.ui.settings.ConnectStep, error: String? = null) = OnBackground {
+        com.xblackbytesx.slopstream.ui.settings.ConnectContent(
+            step, error, busy = false, replace = false, onReplace = {}, onAddress = {}, onPair = {}, onToken = { _, _ -> },
+            onBack = {}, onDone = {},
+        )
+    }
+
+    /** Screens outside AppChrome get the background the app paints behind them. */
+    @Composable
+    private fun OnBackground(content: @Composable () -> Unit) {
+        androidx.compose.foundation.layout.Box(
+            androidx.compose.ui.Modifier.fillMaxSize()
+                .then(androidx.compose.ui.Modifier.background(com.xblackbytesx.slopstream.ui.theme.Palette.Background)),
+        ) { content() }
+    }
+
+    private val server = "https://slopstream.example.com/".toHttpUrl()
+
+    @Test @Config(qualifiers = TV)
+    fun tvSyncPairing() = shot("tv-sync-pairing", isTv = true) {
+        connect(
+            com.xblackbytesx.slopstream.ui.settings.ConnectStep.Pairing(
+                server,
+                com.xblackbytesx.slopstream.data.sync.PairStarted("ssd_x", "KJ7W-3MPQ", "https://slopstream.example.com/pair", 600, 5),
+            ),
+        )
+    }
+
+    @Test @Config(qualifiers = PHONE)
+    fun phoneSyncMethod() = shot("phone-sync-method", isTv = false) {
+        connect(com.xblackbytesx.slopstream.ui.settings.ConnectStep.Method(server, plainHttp = false))
+    }
+
+    @Test @Config(qualifiers = PHONE)
+    fun phoneSyncSection() = shot("phone-sync-section", isTv = false) {
+        OnBackground { SyncSectionShot() }
+    }
+
+    @Composable
+    private fun SyncSectionShot() {
+        com.xblackbytesx.slopstream.ui.settings.SyncSection(
+            com.xblackbytesx.slopstream.data.sync.SyncConfig(
+                server = "https://slopstream.example.com/", personName = "Sam", lastSyncAt = System.currentTimeMillis() - 120_000,
+            ),
+            syncing = false, onConnect = {}, onSyncNow = {}, onDisconnect = {},
+        )
+    }
+
+    @Test @Config(qualifiers = TV)
+    fun tvComments() = shot("tv-comments", isTv = true) {
+        OnBackground {
+            val c2 = com.xblackbytesx.slopstream.ui.comment("c2", com.xblackbytesx.slopstream.core.CommentsPage.Cursor("r"), 3)
+            com.xblackbytesx.slopstream.ui.comments.CommentsList(
+                com.xblackbytesx.slopstream.ui.comments.CommentsState(
+                    nodes = listOf(
+                        com.xblackbytesx.slopstream.ui.comments.CommentNode(com.xblackbytesx.slopstream.ui.comment("c1")),
+                        com.xblackbytesx.slopstream.ui.comments.CommentNode(
+                            c2, open = true, replies = listOf(com.xblackbytesx.slopstream.ui.comment("r1")),
+                            next = com.xblackbytesx.slopstream.core.CommentsPage.Cursor("r2"),
+                        ),
+                    ),
+                    next = com.xblackbytesx.slopstream.core.CommentsPage.Cursor("p2"),
+                    started = true,
+                ),
+                onMore = {}, onReplies = {}, onMoreReplies = {},
+                modifier = androidx.compose.ui.Modifier.padding(48.dp).width(460.dp),
+            )
+        }
     }
 }

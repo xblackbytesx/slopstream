@@ -3,15 +3,21 @@ package com.xblackbytesx.slopstream.di
 import android.content.Context
 import androidx.room.Room
 import com.xblackbytesx.slopstream.core.ContentSource
-import com.xblackbytesx.slopstream.core.SourceKey
 import com.xblackbytesx.slopstream.data.Accounts
+import com.xblackbytesx.slopstream.data.FloatplaneSites
 import com.xblackbytesx.slopstream.data.KeystoreSecretStore
 import com.xblackbytesx.slopstream.data.SecretStore
+import com.xblackbytesx.slopstream.data.TokenStore
 import com.xblackbytesx.slopstream.data.db.AppDatabase
 import com.xblackbytesx.slopstream.data.db.FeedDao
 import com.xblackbytesx.slopstream.data.db.SubscriptionDao
 import com.xblackbytesx.slopstream.data.db.WatchDao
+import com.xblackbytesx.slopstream.data.sync.DataStoreSyncStore
+import com.xblackbytesx.slopstream.data.sync.OkHttpSyncApiFactory
+import com.xblackbytesx.slopstream.data.sync.SyncApiFactory
+import com.xblackbytesx.slopstream.data.sync.SyncStore
 import com.xblackbytesx.slopstream.floatplane.FloatplaneApi
+import com.xblackbytesx.slopstream.floatplane.FloatplaneSite
 import com.xblackbytesx.slopstream.floatplane.FloatplaneSource
 import com.xblackbytesx.slopstream.floatplane.SessionAuthorizer
 import com.xblackbytesx.slopstream.potoken.WebPoTokenProvider
@@ -21,6 +27,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dagger.multibindings.ElementsIntoSet
 import dagger.multibindings.IntoSet
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
@@ -47,19 +54,36 @@ object AppModule {
     fun youtube(@ApplicationContext context: Context, client: OkHttpClient): ContentSource =
         YoutubeSource(client, Locale.getDefault(), WebPoTokenProvider(context, client))
 
-    /** Signed in with the stored website session; without one every call is a SourceAuthException. */
+    /**
+     * Floatplane and Sauce+, one platform: each signed in with its stored website session;
+     * without one every call is a SourceAuthException.
+     */
     @Provides
     @Singleton
-    fun floatplane(client: OkHttpClient, accounts: Accounts): FloatplaneSource =
-        FloatplaneSource(FloatplaneApi(client, SessionAuthorizer { accounts.secret(SourceKey.FLOATPLANE) }))
+    fun floatplaneSites(client: OkHttpClient, accounts: Accounts): FloatplaneSites = FloatplaneSites(
+        FloatplaneSite.ALL.map { site ->
+            FloatplaneSource(FloatplaneApi(client, SessionAuthorizer(site.sessionCookie) { accounts.secret(site.key) }, site.baseUrl), site)
+        },
+    )
 
     @Provides
-    @IntoSet
-    fun floatplaneAsSource(source: FloatplaneSource): ContentSource = source
+    @ElementsIntoSet
+    fun floatplaneSources(sites: FloatplaneSites): Set<ContentSource> = sites.all.toSet()
 
     @Provides
     @Singleton
     fun secretStore(store: KeystoreSecretStore): SecretStore = store
+
+    @Provides
+    @Singleton
+    fun tokenStore(store: KeystoreSecretStore): TokenStore = store
+
+    @Provides
+    @Singleton
+    fun syncStore(store: DataStoreSyncStore): SyncStore = store
+
+    @Provides
+    fun syncApis(factory: OkHttpSyncApiFactory): SyncApiFactory = factory
 
     @Provides
     @Singleton

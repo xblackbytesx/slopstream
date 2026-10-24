@@ -41,6 +41,8 @@ data class AppSettings(
     val matchFrameRate: Boolean,
     /** The service the list screens showed last; [Services.current] checks it is still there. */
     val service: SourceKey? = null,
+    /** A Comments button in the player and the video menu (decision 20). Off by default. */
+    val showComments: Boolean = false,
 ) {
     val prefs: PlaybackPrefs get() = PlaybackPrefs(cap = cap, allowHdr = allowHdr)
     val effectiveProfile: DeviceProfile get() = profile ?: DeviceProfile.CONSERVATIVE
@@ -62,6 +64,7 @@ class Settings @Inject constructor(@ApplicationContext private val context: Cont
         val lastRefreshAt = longPreferencesKey("last_refresh_at")
         val matchFrameRate = booleanPreferencesKey("match_frame_rate")
         val service = stringPreferencesKey("service")
+        val showComments = booleanPreferencesKey("show_comments")
     }
 
     val settings: Flow<AppSettings> = store.data.map { p ->
@@ -75,6 +78,7 @@ class Settings @Inject constructor(@ApplicationContext private val context: Cont
             recommendedCap = p[Keys.recommendedCap]?.let { runCatching { QualityCap.valueOf(it) }.getOrNull() },
             matchFrameRate = p[Keys.matchFrameRate] ?: profile?.matchFrameRate ?: false,
             service = p[Keys.service]?.let { id -> SourceKey.entries.firstOrNull { it.id == id } },
+            showComments = p[Keys.showComments] ?: false,
         )
     }
 
@@ -94,6 +98,7 @@ class Settings @Inject constructor(@ApplicationContext private val context: Cont
     suspend fun setRefreshHours(hours: Int) = store.edit { it[Keys.refreshHours] = hours }
     suspend fun setMatchFrameRate(on: Boolean) = store.edit { it[Keys.matchFrameRate] = on }
     suspend fun setService(source: SourceKey) = store.edit { it[Keys.service] = source.id }
+    suspend fun setShowComments(on: Boolean) = store.edit { it[Keys.showComments] = on }
 
     /** Stores a device check result; the cap follows the recommendation only on the first run. */
     suspend fun saveDeviceCheck(profile: DeviceProfile, recommended: QualityCap) = store.edit {

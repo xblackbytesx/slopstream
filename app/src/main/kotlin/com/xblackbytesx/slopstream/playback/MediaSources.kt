@@ -77,12 +77,14 @@ class MediaSources @Inject constructor(okHttp: OkHttpClient) {
     }
 
     private fun authorized(plan: PlaybackPlan.Manifest): DataSource.Factory {
-        if (plan.authHeaders.isEmpty()) return http
+        if (plan.authHeaders.isEmpty() && plan.hostRewrites.isEmpty()) return http
         return ResolvingDataSource.Factory(http) { spec: DataSpec ->
-            if (spec.uri.host in plan.authHosts && spec.uri.scheme == "https") {
-                spec.withAdditionalHeaders(plan.authHeaders)
+            val target = plan.hostRewrites[spec.uri.host]
+            val moved = if (target != null && spec.uri.scheme == "https") spec.withUri(spec.uri.buildUpon().authority(target).build()) else spec
+            if (moved.uri.host in plan.authHosts && moved.uri.scheme == "https") {
+                moved.withAdditionalHeaders(plan.authHeaders)
             } else {
-                spec
+                moved
             }
         }
     }

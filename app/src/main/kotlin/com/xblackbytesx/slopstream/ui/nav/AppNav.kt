@@ -62,7 +62,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
 import javax.inject.Inject
 import com.xblackbytesx.slopstream.data.db.VideoRow
+import com.xblackbytesx.slopstream.ui.comments.CommentsScreen
 import com.xblackbytesx.slopstream.ui.feed.ChannelScreen
+import com.xblackbytesx.slopstream.ui.feed.HistoryScreen
 import com.xblackbytesx.slopstream.ui.feed.ListNav
 import com.xblackbytesx.slopstream.ui.feed.ShortsScreen
 import com.xblackbytesx.slopstream.ui.feed.VideosScreen
@@ -73,6 +75,7 @@ import com.xblackbytesx.slopstream.ui.search.SearchNav
 import com.xblackbytesx.slopstream.ui.search.SearchScreen
 import com.xblackbytesx.slopstream.ui.settings.DeviceCheckScreen
 import com.xblackbytesx.slopstream.ui.settings.SettingsScreen
+import com.xblackbytesx.slopstream.ui.settings.SyncConnectScreen
 import com.xblackbytesx.slopstream.ui.subscriptions.AddChannelScreen
 import com.xblackbytesx.slopstream.ui.subscriptions.ImportScreen
 import com.xblackbytesx.slopstream.ui.subscriptions.SubscriptionsScreen
@@ -132,6 +135,8 @@ fun AppNav(nav: NavHostController, startDestination: Any, enterPip: () -> Unit, 
         addChannel = { nav.navigate(AddChannelRoute()) },
         import = { nav.navigate(ImportRoute) },
         search = { goTop(TOP_LEVEL.first { it.route == SearchRoute }) },
+        history = { nav.navigate(HistoryRoute) },
+        comments = { nav.navigate(CommentsRoute(it.source, it.remoteId, it.title)) },
         signIn = signIn,
     )
 
@@ -145,12 +150,15 @@ fun AppNav(nav: NavHostController, startDestination: Any, enterPip: () -> Unit, 
                         openChannel = listNav.openChannel,
                         openSubscription = { nav.navigate(ChannelRoute(it.source, it.remoteId, it.name)) },
                         signIn = signIn,
+                        comments = listNav.comments,
                     ),
                 )
             }
             composable<VideosRoute> { VideosScreen(listNav) }
             composable<ShortsRoute> { ShortsScreen(listNav) }
             composable<WatchLaterRoute> { WatchLaterScreen(listNav) }
+            composable<HistoryRoute> { HistoryScreen(listNav) }
+            composable<CommentsRoute> { CommentsScreen() }
             composable<SubscriptionsRoute> {
                 SubscriptionsScreen(
                     openChannel = { nav.navigate(ChannelRoute(it.source, it.remoteId, it.name)) },
@@ -161,9 +169,14 @@ fun AppNav(nav: NavHostController, startDestination: Any, enterPip: () -> Unit, 
                 )
             }
             composable<SettingsRoute> {
-                SettingsScreen(runDeviceCheck = { nav.navigate(DeviceCheckRoute(firstRun = false)) }, signIn = signIn)
+                SettingsScreen(
+                    runDeviceCheck = { nav.navigate(DeviceCheckRoute(firstRun = false)) },
+                    signIn = signIn,
+                    connectSync = { nav.navigate(SyncConnectRoute) },
+                )
             }
             composable<SignInRoute> { SignInScreen(onDone = { nav.popBackStack() }) }
+            composable<SyncConnectRoute> { SyncConnectScreen(onDone = { nav.popBackStack() }) }
             composable<AddChannelRoute> { AddChannelScreen() }
             composable<ImportRoute> { ImportScreen() }
             composable<ChannelRoute> { ChannelScreen(listNav, onUnsubscribed = { nav.popBackStack() }) }

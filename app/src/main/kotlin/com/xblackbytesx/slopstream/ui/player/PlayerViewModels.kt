@@ -8,11 +8,13 @@ import androidx.navigation.toRoute
 import com.xblackbytesx.slopstream.data.AppSettings
 import com.xblackbytesx.slopstream.data.FeedRepository
 import com.xblackbytesx.slopstream.data.Settings
+import com.xblackbytesx.slopstream.data.Sources
 import com.xblackbytesx.slopstream.data.WatchRepository
 import com.xblackbytesx.slopstream.data.db.VideoRow
 import com.xblackbytesx.slopstream.playback.MediaSources
 import com.xblackbytesx.slopstream.playback.PlaybackRepository
 import com.xblackbytesx.slopstream.playback.PlayerEngine
+import com.xblackbytesx.slopstream.ui.comments.CommentsLoader
 import com.xblackbytesx.slopstream.ui.nav.PlayerRoute
 import com.xblackbytesx.slopstream.ui.nav.ShortsPlayerRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -33,10 +35,15 @@ class PlayerViewModel @Inject constructor(
     watch: WatchRepository,
     feed: FeedRepository,
     settings: Settings,
+    sources: Sources,
 ) : AndroidViewModel(app) {
     val route: PlayerRoute = savedState.toRoute()
     val engine = PlayerEngine(app, viewModelScope, playback, mediaSources, watch, feed, settings)
     val settings: StateFlow<AppSettings?> = settings.settings.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** This video's comments, loaded only when the panel opens (decision 20). Null: none here. */
+    val comments: CommentsLoader? = sources[route.source].takeIf { it.capabilities.hasComments }
+        ?.let { CommentsLoader(it, route.videoId, viewModelScope) }
 
     init {
         engine.load(route.source, route.videoId)

@@ -6,8 +6,11 @@ import android.security.keystore.KeyProperties
 import com.xblackbytesx.slopstream.core.SourceKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
@@ -37,16 +40,29 @@ interface SecretStore {
     fun delete(source: SourceKey)
 }
 
+/** Where this device's sync server token lives. */
+interface TokenStore {
+    fun readToken(): String?
+    fun writeToken(token: String)
+    fun deleteToken()
+}
+
 /**
  * Signed-in service accounts. The credential (Floatplane's website session today) stays in
- * memory and in [SecretStore]; it is never logged, synced or shown. A service that rejects it
- * marks the account [AccountStatus.EXPIRED] until the user signs in again.
+ * memory and in [SecretStore]; it is never logged or shown, and leaves the device only to the
+ * user's own sync server (decision 18). A service that rejects it marks the account
+ * [AccountStatus.EXPIRED] until the user signs in again.
  */
 @Singleton
 class Accounts @Inject constructor(private val store: SecretStore) {
     private val stored = HashMap<SourceKey, StoredAccount?>()
     private val _state = MutableStateFlow(SourceKey.entries.associateWith { key -> load(key).toAccount() })
     val state: StateFlow<Map<SourceKey, Account>> = _state.asStateFlow()
+
+    private val _expired = MutableSharedFlow<SourceKey>(extraBufferCapacity = 8)
+
+    /** A service rejected a session this device used (for the sync server to hear about). */
+    val expired: SharedFlow<SourceKey> = _expired.asSharedFlow()
 
     fun account(source: SourceKey): Account = _state.value[source] ?: Account()
 
@@ -66,11 +82,19 @@ class Accounts @Inject constructor(private val store: SecretStore) {
         _state.update { it + (source to Account()) }
     }
 
-    fun markExpired(source: SourceKey) {
+    /** [report]: the service said so to this device (not the sync server relaying it). */
+    fun markExpired(source: SourceKey, report: Boolean = true) {
+        var changed = false
         _state.update { m ->
             val a = m[source] ?: return@update m
-            if (a.status == AccountStatus.SIGNED_IN) m + (source to a.copy(status = AccountStatus.EXPIRED)) else m
+            if (a.status == AccountStatus.SIGNED_IN) {
+                changed = true
+                m + (source to a.copy(status = AccountStatus.EXPIRED))
+            } else {
+                m
+            }
         }
+        if (changed && report) _expired.tryEmit(source)
     }
 
     private fun load(source: SourceKey): StoredAccount? = synchronized(stored) {
@@ -86,33 +110,46 @@ class Accounts @Inject constructor(private val store: SecretStore) {
  * it, in no-backup storage, so neither a backup nor a copied data folder carries them.
  */
 @Singleton
-class KeystoreSecretStore @Inject constructor(@ApplicationContext context: Context) : SecretStore {
+class KeystoreSecretStore @Inject constructor(@ApplicationContext context: Context) : SecretStore, TokenStore {
     private val dir = File(context.noBackupFilesDir, "accounts")
     private val json = Json { ignoreUnknownKeys = true }
 
-    private fun file(source: SourceKey) = File(dir, "${source.id}.bin")
+    private fun file(name: String) = File(dir, "$name.bin")
 
-    override fun read(source: SourceKey): StoredAccount? {
-        val bytes = file(source).takeIf { it.exists() }?.readBytes() ?: return null
+    override fun read(source: SourceKey): StoredAccount? =
+        open(source.id)?.let { json.decodeFromString(StoredAccount.serializer(), it) }
+
+    override fun write(source: SourceKey, account: StoredAccount) =
+        seal(source.id, json.encodeToString(StoredAccount.serializer(), account))
+
+    override fun delete(source: SourceKey) {
+        file(source.id).delete()
+    }
+
+    override fun readToken(): String? = open(TOKEN)
+
+    override fun writeToken(token: String) = seal(TOKEN, token)
+
+    override fun deleteToken() {
+        file(TOKEN).delete()
+    }
+
+    private fun open(name: String): String? {
+        val bytes = file(name).takeIf { it.exists() }?.readBytes() ?: return null
         if (bytes.size <= IV_BYTES) return null
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes, 0, IV_BYTES))
-        val plain = cipher.doFinal(bytes, IV_BYTES, bytes.size - IV_BYTES)
-        return json.decodeFromString(StoredAccount.serializer(), plain.decodeToString())
+        return cipher.doFinal(bytes, IV_BYTES, bytes.size - IV_BYTES).decodeToString()
     }
 
-    override fun write(source: SourceKey, account: StoredAccount) {
+    private fun seal(name: String, plain: String) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key())
-        val sealed = cipher.iv + cipher.doFinal(json.encodeToString(StoredAccount.serializer(), account).encodeToByteArray())
+        val sealed = cipher.iv + cipher.doFinal(plain.encodeToByteArray())
         dir.mkdirs()
-        val tmp = File(dir, "${source.id}.tmp")
+        val tmp = File(dir, "$name.tmp")
         tmp.writeBytes(sealed)
-        check(tmp.renameTo(file(source))) { "Could not store the sign-in" }
-    }
-
-    override fun delete(source: SourceKey) {
-        file(source).delete()
+        check(tmp.renameTo(file(name))) { "Could not store the sign-in" }
     }
 
     private fun key(): SecretKey {
@@ -134,5 +171,8 @@ class KeystoreSecretStore @Inject constructor(@ApplicationContext context: Conte
         const val ALIAS = "slopstream-accounts"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val IV_BYTES = 12
+
+        /** The sync server token; never a SourceKey id. */
+        const val TOKEN = "sync-token"
     }
 }

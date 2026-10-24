@@ -46,8 +46,8 @@ import com.xblackbytesx.slopstream.data.Account
 import com.xblackbytesx.slopstream.data.AccountStatus
 import com.xblackbytesx.slopstream.data.Accounts
 import com.xblackbytesx.slopstream.data.AppSettings
-import com.xblackbytesx.slopstream.data.FloatplaneAccount
 import com.xblackbytesx.slopstream.data.Settings
+import com.xblackbytesx.slopstream.data.SiteSignIn
 import com.xblackbytesx.slopstream.device.DeviceCheck
 import com.xblackbytesx.slopstream.device.DeviceCheckResult
 import com.xblackbytesx.slopstream.playback.PlaybackRepository
@@ -72,13 +72,16 @@ class SettingsViewModel @Inject constructor(
     private val settings: Settings,
     private val playback: PlaybackRepository,
     accounts: Accounts,
-    private val floatplane: FloatplaneAccount,
+    private val signIn: SiteSignIn,
 ) : ViewModel() {
     val state: StateFlow<AppSettings?> = settings.settings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val accounts: StateFlow<Map<SourceKey, Account>> = accounts.state
 
-    fun signOutFloatplane() {
-        viewModelScope.launch { floatplane.signOut() }
+    /** The services that sign in, in menu order. */
+    val signInSources: List<SourceKey> = SourceKey.entries.filter { signIn.isSite(it) }
+
+    fun signOut(source: SourceKey) {
+        viewModelScope.launch { signIn.signOut(source) }
     }
 
     private fun edit(block: suspend Settings.() -> Unit) {
@@ -90,14 +93,25 @@ class SettingsViewModel @Inject constructor(
     fun setLive(on: Boolean) = edit { setShowLive(on) }
     fun setMatchFrameRate(on: Boolean) = edit { setMatchFrameRate(on) }
     fun setRefresh(hours: Int) = edit { setRefreshHours(hours) }
+    fun setComments(on: Boolean) = edit { setShowComments(on) }
 }
 
 @Composable
-fun SettingsScreen(runDeviceCheck: () -> Unit, signIn: (SourceKey) -> Unit, vm: SettingsViewModel = hiltViewModel()) {
+fun SettingsScreen(
+    runDeviceCheck: () -> Unit,
+    signIn: (SourceKey) -> Unit,
+    connectSync: () -> Unit,
+    vm: SettingsViewModel = hiltViewModel(),
+    sync: SyncViewModel = hiltViewModel(),
+) {
     val s by vm.state.collectAsStateWithLifecycle()
     val accounts by vm.accounts.collectAsStateWithLifecycle()
-    var confirmSignOut by remember { mutableStateOf(false) }
+    val syncConfig by sync.config.collectAsStateWithLifecycle()
+    val syncing by sync.syncing.collectAsStateWithLifecycle()
+    var confirmSignOut by remember { mutableStateOf<SourceKey?>(null) }
+    var confirmDisconnect by remember { mutableStateOf(false) }
     val settings = s ?: return
+    val connected = syncConfig?.connected == true
     val dims = LocalDims.current
     val isTv = LocalIsTv.current
 
@@ -127,6 +141,15 @@ fun SettingsScreen(runDeviceCheck: () -> Unit, signIn: (SourceKey) -> Unit, vm: 
             item { ToggleRow("Match frame rate", "Switch the TV's refresh rate to the video's (24, 25, 30, 50, 60 Hz) for judder-free motion.", settings.matchFrameRate, vm::setMatchFrameRate) }
         }
 
+        item {
+            ToggleRow(
+                "Comments",
+                "A Comments button in the player and the video menu, for YouTube. Loaded only when you open them, never kept.",
+                settings.showComments,
+                vm::setComments,
+            )
+        }
+
         item { Section("Feed") }
         item { ToggleRow("Livestreams and premieres", "Show them in Videos, mixed in by date. Shorts always have their own screen.", settings.showLiveInFeed, vm::setLive) }
         item {
@@ -137,13 +160,20 @@ fun SettingsScreen(runDeviceCheck: () -> Unit, signIn: (SourceKey) -> Unit, vm: 
         }
 
         item { Section("Accounts") }
-        item {
-            AccountRow(
-                SourceKey.FLOATPLANE,
-                accounts[SourceKey.FLOATPLANE] ?: Account(),
-                onSignIn = { signIn(SourceKey.FLOATPLANE) },
-                onSignOut = { confirmSignOut = true },
-            )
+        vm.signInSources.forEach { key ->
+            item(key = "account-${key.id}") {
+                AccountRow(
+                    key,
+                    accounts[key] ?: Account(),
+                    onSignIn = { signIn(key) },
+                    onSignOut = { confirmSignOut = key },
+                )
+            }
+        }
+
+        item { Section("Sync server") }
+        syncConfig?.let { c ->
+            item(key = "sync") { SyncSection(c, syncing, connectSync, sync::syncNow) { confirmDisconnect = true } }
         }
 
         item { Section("This device") }
@@ -155,20 +185,36 @@ fun SettingsScreen(runDeviceCheck: () -> Unit, signIn: (SourceKey) -> Unit, vm: 
             Text(
                 "Slopstream ${BuildConfig.VERSION_NAME}. Free software under the GPL-3.0. " +
                     "YouTube support is built on NewPipeExtractor by the NewPipe team. No tracking: YouTube needs no account and " +
-                    "its subscriptions live on this device; Floatplane plays what your own plan includes.",
+                    "its subscriptions live on this device; Floatplane and Sauce+ play what your own membership includes.",
                 style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
                 modifier = Modifier.widthIn(max = 720.dp),
             )
         }
     }
 
-    if (confirmSignOut) {
+    confirmSignOut?.let { key ->
         AlertDialog(
-            onDismissRequest = { confirmSignOut = false },
-            title = { Text("Sign out of Floatplane?") },
-            text = { Text("This ends the session on Floatplane too. Its channels leave Subscriptions; sign in again to bring them back.") },
-            confirmButton = { TextButton(onClick = { vm.signOutFloatplane(); confirmSignOut = false }) { Text("Sign out") } },
-            dismissButton = { TextButton(onClick = { confirmSignOut = false }) { Text("Cancel") } },
+            onDismissRequest = { confirmSignOut = null },
+            title = { Text("Sign out of ${key.label}?") },
+            text = {
+                Text(
+                    "This ends the session on ${key.label} too, and ${key.label} leaves your screens until you sign in again" +
+                        if (connected) ", on all your devices." else ".",
+                )
+            },
+            confirmButton = { TextButton(onClick = { vm.signOut(key); confirmSignOut = null }) { Text("Sign out") } },
+            dismissButton = { TextButton(onClick = { confirmSignOut = null }) { Text("Cancel") } },
+            containerColor = Palette.Surface,
+        )
+    }
+
+    if (confirmDisconnect) {
+        AlertDialog(
+            onDismissRequest = { confirmDisconnect = false },
+            title = { Text("Disconnect from the sync server?") },
+            text = { Text("This device stops syncing. Its library and sign-ins stay here; the server keeps its copy for your other devices.") },
+            confirmButton = { TextButton(onClick = { sync.disconnect(); confirmDisconnect = false }) { Text("Disconnect") } },
+            dismissButton = { TextButton(onClick = { confirmDisconnect = false }) { Text("Cancel") } },
             containerColor = Palette.Surface,
         )
     }
