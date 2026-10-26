@@ -21,12 +21,17 @@ open class FakeSource(
     var feeds: MutableMap<String, () -> ChannelFeed> = mutableMapOf(),
     override val key: SourceKey = SourceKey.YOUTUBE,
     override val capabilities: SourceCapabilities =
-        SourceCapabilities(needsLogin = false, hasShorts = true, hasLive = true, canSearchChannels = true),
+        SourceCapabilities(needsLogin = false, hasShorts = true, hasLive = true, canSearchChannels = true, enrichesDurations = true),
 ) : ContentSource {
     val fetched = mutableListOf<String>()
 
     /** What [accountSubscriptions] returns, for a source that has them. */
     var account: () -> List<Channel> = { emptyList() }
+
+    /** What [durations] returns, per channel. */
+    val durationsOf = mutableMapOf<String, Map<String, Long>>()
+
+    override suspend fun durations(channelId: String): Map<String, Long> = durationsOf[channelId].orEmpty()
 
     override suspend fun accountSubscriptions(): List<Channel> = account()
 

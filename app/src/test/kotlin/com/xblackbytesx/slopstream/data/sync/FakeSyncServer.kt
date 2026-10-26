@@ -105,12 +105,29 @@ class FakeSyncServer : SyncApi {
             r.rev > cursor
         }.sortedBy { it.rev }
         val channels = statuses.filter { "${it.source}:${it.remoteId}" in request.channels }
-        return FeedResponse(PROTOCOL, more = false, items = items, channels = channels)
+        return FeedResponse(PROTOCOL, more = false, items = items, channels = channels, durationJobs = durationJobs.toList())
     }
 
     override suspend fun refreshFeed(): FeedRefresh {
         feedRefreshes++
         return FeedRefresh(0, 0)
+    }
+
+    val durationJobs = ArrayList<String>()
+    val durationReports = ArrayList<FeedDurations>()
+
+    override suspend fun reportDurations(report: FeedDurations): DurationsStored {
+        durationReports += report
+        return DurationsStored(report.durations.size.toLong())
+    }
+
+    /** What the long-poll answers next, in order; an empty queue is an error. */
+    val changesAnswers = ArrayDeque<ChangesAnswer>()
+    val changesAsked = ArrayList<Long>()
+
+    override suspend fun changes(since: Long): ChangesAnswer {
+        changesAsked += since
+        return changesAnswers.removeFirstOrNull() ?: throw SyncException("down")
     }
 }
 

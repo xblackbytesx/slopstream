@@ -88,6 +88,8 @@ data class SourceCapabilities(
     val importsSubscriptions: Boolean = false,
     /** A video's comments can be read ([ContentSource.comments]), when the user turns them on. */
     val hasComments: Boolean = false,
+    /** The feed lacks durations and [ContentSource.durations] can fill them in (YouTube's RSS). */
+    val enrichesDurations: Boolean = false,
 )
 
 /**

@@ -79,6 +79,11 @@ class SyncContractTest {
         assertEquals(121L, r.channels.single().rev)
         sameJson(golden("feed_response"), SyncJson.encodeToString(FeedResponse.serializer(), r))
         assertEquals(12L, SyncJson.decodeFromString(FeedRefresh.serializer(), golden("feed_refresh")).fetched)
+        assertEquals(listOf("UCXuqSBlHAE6Xw-yeJA0Tunw"), r.durationJobs)
+        val report = FeedDurations("UCXuqSBlHAE6Xw-yeJA0Tunw", mapOf("dQw4w9WgXcQ" to 212L))
+        sameJson(golden("feed_durations"), SyncJson.encodeToString(FeedDurations.serializer(), report))
+        assertEquals(1L, SyncJson.decodeFromString(DurationsStored.serializer(), golden("durations_stored")).updated)
+        assertEquals(ChangesAnswer(7, true), SyncJson.decodeFromString(ChangesAnswer.serializer(), golden("changes")))
     }
 
     @Test

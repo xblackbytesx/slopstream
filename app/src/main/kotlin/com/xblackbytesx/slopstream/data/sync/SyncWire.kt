@@ -166,7 +166,20 @@ data class FeedResponse(
     val items: List<FeedRow> = emptyList(),
     /** Channels the server fetches; one missing here is this device's to fetch. */
     val channels: List<ChannelStatus> = emptyList(),
+    /** YouTube channels this device is asked to look up durations for (leased to it alone). */
+    val durationJobs: List<String> = emptyList(),
 )
+
+/** `POST /api/v1/feed/durations`: a duration job's result, video id to seconds. */
+@Serializable
+data class FeedDurations(val channelId: String, val durations: Map<String, Long>)
+
+@Serializable
+data class DurationsStored(val updated: Long)
+
+/** `GET /api/v1/changes`: long-poll; on [changed], sync and pull, then wait with [generation]. */
+@Serializable
+data class ChangesAnswer(val generation: Long, val changed: Boolean)
 
 @Serializable
 data class FeedRow(

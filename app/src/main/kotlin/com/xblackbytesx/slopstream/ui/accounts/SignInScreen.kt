@@ -55,12 +55,14 @@ import com.xblackbytesx.slopstream.ui.components.ListRow
 import com.xblackbytesx.slopstream.ui.components.PrimaryButton
 import com.xblackbytesx.slopstream.ui.components.ScreenHeader
 import com.xblackbytesx.slopstream.ui.components.SecondaryButton
+import com.xblackbytesx.slopstream.ui.components.rememberLocalNetworkRequest
 import com.xblackbytesx.slopstream.ui.nav.SignInRoute
 import com.xblackbytesx.slopstream.ui.theme.LocalDims
 import com.xblackbytesx.slopstream.ui.theme.LocalIsTv
 import com.xblackbytesx.slopstream.ui.theme.Palette
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -74,7 +76,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import javax.inject.Inject
 
 enum class SignInMode { CHOOSE, WEB, OTHER_DEVICE }
 
@@ -203,6 +204,8 @@ fun SignInScreen(onDone: () -> Unit, vm: SignInViewModel = hiltViewModel()) {
     val dims = LocalDims.current
     val isTv = LocalIsTv.current
     val site = vm.site
+    // The paste page is opened from another device: Android 17+ asks first ("Nearby devices").
+    val otherDevice = rememberLocalNetworkRequest { vm.choose(SignInMode.OTHER_DEVICE) }
 
     LaunchedEffect(state.username) {
         if (state.username != null) {
@@ -239,7 +242,7 @@ fun SignInScreen(onDone: () -> Unit, vm: SignInViewModel = hiltViewModel()) {
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             PrimaryButton("Sign in here", { vm.choose(SignInMode.WEB) }, icon = Icons.AutoMirrored.Filled.Login)
-            if (state.lanAddress == null) SecondaryButton("Use another device", { vm.choose(SignInMode.OTHER_DEVICE) }, icon = Icons.Filled.Wifi)
+            if (state.lanAddress == null) SecondaryButton("Use another device", otherDevice, icon = Icons.Filled.Wifi)
         }
         if (isTv && state.mode == SignInMode.CHOOSE) {
             Text("Typing a password with the remote is slow; another device is quicker.", color = Palette.TextDim, style = MaterialTheme.typography.bodySmall)

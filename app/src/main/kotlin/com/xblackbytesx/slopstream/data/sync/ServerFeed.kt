@@ -25,6 +25,7 @@ class ServerFeed @Inject constructor(
     private val store: SyncStore,
     private val apis: SyncApiFactory,
     private val clock: Clock,
+    private val durations: Durations,
 ) {
     private val feed = db.feed()
     private val subs = db.subscriptions()
@@ -45,6 +46,9 @@ class ServerFeed @Inject constructor(
         }
     }
 
+    /** A sync server is connected (it hands out duration jobs then). */
+    suspend fun connected(): Boolean = store.current().connected
+
     /** Fills the cache for [channels]; returns the ones this device must fetch itself. */
     suspend fun pull(channels: List<SubscriptionEntity>): List<SubscriptionEntity> {
         if (channels.isEmpty()) return channels
@@ -58,6 +62,7 @@ class ServerFeed @Inject constructor(
                 r.items.forEach { i -> revs.merge(key(i.source, i.channelId), i.rev, ::maxOf) }
                 if (!r.more) {
                     statuses = r.channels
+                    durations.offer(r.durationJobs)
                     break
                 }
             }

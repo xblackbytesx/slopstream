@@ -35,6 +35,7 @@ class ServerFeedTest {
     private lateinit var db: AppDatabase
     private lateinit var source: FakeSource
     private lateinit var repo: FeedRepository
+    private lateinit var durations: Durations
     private val server = FakeSyncServer()
     private val store = MemorySyncStore()
     private val now = 1_800_000_000_000L
@@ -48,9 +49,10 @@ class ServerFeedTest {
         val sources = Sources(source)
         val accounts = Accounts(MemorySecretStore())
         val subs = SubscriptionRepository(db.subscriptions(), Settings(ctx), sources, clock)
+        durations = Durations(sources, db, store) { _, _ -> server }.apply { busy = { false }; gapMs = 0 }
         repo = FeedRepository(
             db.feed(), db.subscriptions(), sources, subs, accounts, Settings(ctx), clock,
-            ServerFeed(db, store, { _, _ -> server }, clock),
+            ServerFeed(db, store, { _, _ -> server }, clock, durations), durations,
         )
         store.setToken("ss_t")
         store.update { it.copy(server = "https://s.example/") }
@@ -114,6 +116,40 @@ class ServerFeedTest {
         server.feedDown = true
         repo.refreshAll()
         assertEquals(listOf("A", "B", "C"), source.fetched.sorted())
+    }
+
+    @Test
+    fun durationJobsFromTheServerAreLookedUpAndReported() = runTest {
+        db.feed().upsert(listOf(FeedItemEntity("yt", "a1", "A", "Channel A", "Video a1", now, VideoKind.VIDEO.name, null, null, false, now)))
+        source.durationsOf["A"] = mapOf("a1" to 754L)
+        server.durationJobs += "A"
+        repo.pullFromServer()
+        durations.drain()
+        assertEquals(754L, db.feed().get("yt", "a1")!!.durationSec)
+        assertEquals(listOf(FeedDurations("A", mapOf("a1" to 754L))), server.durationReports)
+    }
+
+    @Test
+    fun theLongPollRefreshesOnlyWhenSomethingChanged() = runTest {
+        val engine = SyncEngine(
+            db, store, Accounts(MemorySecretStore()), Sources(source),
+            SubscriptionRepository(db.subscriptions(), Settings(ApplicationProvider.getApplicationContext()), Sources(source), clock),
+            clock,
+        ) { _, _ -> server }
+        var refreshed = 0
+        var t = 0L
+        val poll = LongPoll(engine, { refreshed++ }, { t })
+        server.changesAnswers += listOf(ChangesAnswer(3, true), ChangesAnswer(3, false), ChangesAnswer(4, true))
+        assertEquals(0L, poll.step())
+        assertEquals(0L, poll.step())
+        assertEquals(1, refreshed)
+        t += LongPoll.FULL_MS
+        assertEquals(0L, poll.step())
+        assertEquals(2, refreshed)
+        assertEquals(listOf(-1L, 3L, 3L), server.changesAsked)
+        // The server is down: back to a refresh every 30 s.
+        assertEquals(LongPoll.RETRY_MS, poll.step())
+        assertEquals(3, refreshed)
     }
 
     @Test

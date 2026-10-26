@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
@@ -31,6 +32,9 @@ interface VideoActions {
     fun menu(row: VideoRow)
     fun prefetch(row: VideoRow)
 }
+
+/** Frames [VideoGrid] keeps trying to put focus back on a tile. */
+private const val RESTORE_FRAMES = 20
 
 /** The grid key of a row, also what [VideoGrid]'s `restoreFocusKey` names. */
 fun VideoRow.tileKey(): String = "$source:$remoteId"
@@ -67,9 +71,15 @@ fun VideoGrid(
         val index = (0 until items.itemCount).firstOrNull { items.peek(it)?.tileKey() == key } ?: return@LaunchedEffect
         val gridIndex = index + offset
         if (state.layoutInfo.visibleItemsInfo.none { it.index == gridIndex }) state.scrollToItem(gridIndex)
-        // The tile is composed on the next frame if it was just scrolled to.
-        withFrameNanos { }
-        pending = !runCatching { restore.requestFocus() }.isSuccess
+        // The tile is attached a frame or more after it was scrolled to, and the screen may
+        // still be coming in: try for a moment, frame by frame, until focus actually lands.
+        repeat(RESTORE_FRAMES) {
+            withFrameNanos { }
+            if (runCatching { restore.requestFocus(FocusDirection.Enter) }.getOrDefault(false)) {
+                pending = false
+                return@LaunchedEffect
+            }
+        }
     }
 
     LazyVerticalGrid(

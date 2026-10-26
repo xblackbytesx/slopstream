@@ -232,6 +232,22 @@ A new service is a new JVM module implementing `ContentSource`, registered in
     - `make smoke` checks a first page, a second page and replies. Floatplane comments: later.
     - History stays where it is (the user's call, 2026-10-24): a button on Watch later.
 
+21. **Long-poll and durations** (2026-10-24, server 0.3.0; its AGENTS.md has the protocol).
+    - While the app is in front, `LongPoll` waits on `/api/v1/changes` and syncs and pulls the
+      feed when it says something changed, and at least every 5 minutes. Without a server, or
+      while it can't be reached, it falls back to a refresh every 60 s (30 s when connected).
+    - `Durations` works duration jobs in the background: the server's `durationJobs`, or,
+      without a server, the channels a local refresh found new uploads in. One channel at a
+      time, 2 s apart, never while a player is open; `ContentSource.durations` (YouTube: the
+      Videos and Live tabs). Results go into the cache and up to the server.
+    - Premieres are parked (roadmap).
+
+22. **Swipe for brightness and volume** (2026-10-25, phones in landscape, as NewPipe and
+    Grayjay): a vertical swipe on the left half sets the window's brightness, on the right half
+    the media volume (`SwipeAdjust`). Not on TV, in Shorts (the pager swipes vertically), in PiP
+    or with comments open; the top and bottom tenth stay with the system bars. The brightness is
+    reset when the player closes and reused by the next player in the same process, never saved.
+
 ## Invariants
 
 - **No algorithmic content.** Feeds hold only subscribed channels; ordering is publish date
@@ -260,6 +276,15 @@ A new service is a new JVM module implementing `ContentSource`, registered in
   (the grid leaves composition for a frame while a list reloads) and remember the tile last
   played or opened; `VideoGrid(restoreFocusKey)` scrolls to it and focuses it on return, so
   focus never falls to the rail (`GridFocusTest`). Search does the same for its tiles.
+- **One place in the tree for the NavHost.** `AppChrome(showNav)` hides the rail or bottom
+  bar for the player but never moves the content: composing the NavHost elsewhere rebuilt
+  every screen and lost the tile to focus on Back (found on the Shield 2026-10-24;
+  `TvNavigationTest`). Restoring focus retries for a few frames until the tile is attached.
+- **Text fields on TV let go of Up and Down** (`SearchBar`): Compose keeps them for the cursor
+  otherwise, and the remote could not reach the results.
+- **Local network permission on Android 17+** (`ACCESS_LOCAL_NETWORK`, "Nearby devices") is
+  asked when the user starts something that needs it (Connect, a LAN page), never at launch
+  (`rememberLocalNetworkRequest`).
 - Screens split ViewModel wiring from stateless pieces where tests need them
   (`AppChrome`, `VideoGrid`, `VideoTile`, `ProfileSummary`).
 
@@ -279,8 +304,9 @@ keep only the TeamNewPipe entries it adds, then `make smoke`. Check NewPipe's
 3. Floatplane: device testing; request Slopstream's own client id from Floatplane and switch
    to the device-code login; sub-channel filter; Floatplane's own progress on tiles.
 4. Sync server: built 2026-10-23 (decision 18), server-fetched lists 2026-10-24 (decision 19,
-   0.2.0). Next: device test with two devices; long-poll so website changes and fresh lists
-   arrive at once; NewPipe history import; optional server thumbnail proxy (server roadmap).
+   0.2.0), long-poll and durations 2026-10-24 (decision 21, 0.3.0). Next: premieres (an
+   "upcoming" state with its start time on both sides); NewPipe history import; optional
+   server thumbnail proxy (server roadmap).
 5. Sauce+. Checked 2026-10-23: www.sauceplus.com serves the same frontend build as
    Floatplane with a branding config, so the same API and website sign-in apply; the
    session cookie is named `__Host-sp-sess` there instead of `sails.sid`. Differences in that config: its own accounts (Keycloak realm `sauceplus`,

@@ -13,6 +13,7 @@ import com.xblackbytesx.slopstream.data.db.FeedItemEntity
 import com.xblackbytesx.slopstream.data.db.LibrarySearch
 import com.xblackbytesx.slopstream.data.db.SubscriptionDao
 import com.xblackbytesx.slopstream.data.db.SubscriptionEntity
+import com.xblackbytesx.slopstream.data.sync.Durations
 import com.xblackbytesx.slopstream.data.sync.ServerFeed
 import com.xblackbytesx.slopstream.data.db.VideoRow
 import kotlinx.coroutines.CancellationException
@@ -51,6 +52,7 @@ class FeedRepository @Inject constructor(
     private val settings: Settings,
     private val clock: Clock,
     private val server: ServerFeed,
+    private val durations: Durations,
 ) {
     private val _state = MutableStateFlow(RefreshState())
     val state: StateFlow<RefreshState> = _state.asStateFlow()
@@ -182,9 +184,14 @@ class FeedRepository @Inject constructor(
         if (!signedIn(key)) return false
         return try {
             val feed = sources[key].fetchChannelFeed(sub.remoteId)
+            val known = feedDao.idsForChannel(sub.source, sub.remoteId).toHashSet()
             feedDao.merge(sub.source, sub.remoteId, feed.items.map { it.toEntity(now) }, KEEP_PER_KIND, feed.completeKinds.mapTo(HashSet()) { it.name })
             feed.channelName?.takeIf { it.isNotBlank() }?.let { subscriptionDao.rename(sub.source, sub.remoteId, it) }
             subscriptionDao.markRefreshed(sub.source, sub.remoteId, now, null)
+            // New uploads without durations: looked up in the background. With a sync server
+            // connected, it hands those jobs out instead (one device per channel).
+            val missing = feed.items.any { it.remoteId !in known && it.durationSec == null && it.kind != VideoKind.SHORT }
+            if (missing && sources[key].capabilities.enrichesDurations && !server.connected()) durations.offer(listOf(sub.remoteId))
             true
         } catch (e: CancellationException) {
             throw e

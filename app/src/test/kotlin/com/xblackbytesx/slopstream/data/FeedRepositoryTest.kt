@@ -14,8 +14,10 @@ import com.xblackbytesx.slopstream.core.VideoKind
 import com.xblackbytesx.slopstream.data.db.AppDatabase
 import com.xblackbytesx.slopstream.data.db.SubscriptionEntity
 import com.xblackbytesx.slopstream.data.db.VideoRow
+import com.xblackbytesx.slopstream.data.sync.Durations
 import com.xblackbytesx.slopstream.data.sync.MemorySyncStore
 import com.xblackbytesx.slopstream.data.sync.ServerFeed
+import com.xblackbytesx.slopstream.data.sync.SyncApiFactory
 import com.xblackbytesx.slopstream.fakeFloatplane
 import com.xblackbytesx.slopstream.feed
 import com.xblackbytesx.slopstream.item
@@ -52,8 +54,11 @@ class FeedRepositoryTest {
         sources = Sources(source, floatplane)
         accounts = Accounts(MemorySecretStore(SourceKey.FLOATPLANE))
         // No sync server: every channel is fetched here, as before decision 19.
-        val noServer = ServerFeed(db, MemorySyncStore(), { _, _ -> error("not connected") }, clock)
-        repo = FeedRepository(db.feed(), db.subscriptions(), sources, subscriptions(), accounts, Settings(ctx), clock, noServer)
+        val store = MemorySyncStore()
+        val noApi = SyncApiFactory { _, _ -> error("not connected") }
+        val durations = Durations(sources, db, store, noApi)
+        val noServer = ServerFeed(db, store, noApi, clock, durations)
+        repo = FeedRepository(db.feed(), db.subscriptions(), sources, subscriptions(), accounts, Settings(ctx), clock, noServer, durations)
     }
 
     @After

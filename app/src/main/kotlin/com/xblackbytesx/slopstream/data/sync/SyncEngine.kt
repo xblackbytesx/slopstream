@@ -125,6 +125,18 @@ class SyncEngine @Inject constructor(
         return sync()
     }
 
+    suspend fun connected(): Boolean = store.current().connected
+
+    /** Long-poll ([SyncApi.changes]); null when not connected or the server could not be asked. */
+    suspend fun waitForChanges(since: Long): ChangesAnswer? {
+        val api = api() ?: return null
+        return try {
+            api.changes(since)
+        } catch (e: SyncException) {
+            null
+        }
+    }
+
     private suspend fun api(): SyncApi? {
         val server = store.current().server ?: return null
         val token = withContext(Dispatchers.IO) { store.token() } ?: return null

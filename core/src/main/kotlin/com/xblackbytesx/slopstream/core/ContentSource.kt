@@ -44,6 +44,12 @@ interface ContentSource {
      */
     suspend fun comments(videoId: String, from: CommentsPage.Cursor? = null): CommentsPage =
         throw SourceUnavailableException("This service has no comments here")
+
+    /**
+     * Durations of a channel's recent uploads, video id to seconds
+     * ([SourceCapabilities.enrichesDurations]): what the feed itself does not carry.
+     */
+    suspend fun durations(channelId: String): Map<String, Long> = emptyMap()
 }
 
 open class SourceException(message: String, cause: Throwable? = null) : Exception(message, cause)

@@ -69,7 +69,7 @@ class YoutubeSource(
 
     override val capabilities = SourceCapabilities(
         needsLogin = false, hasShorts = true, hasLive = true, canSearchChannels = true, canSearchVideos = true,
-        importsSubscriptions = true, hasComments = true,
+        importsSubscriptions = true, hasComments = true, enrichesDurations = true,
     )
 
     override suspend fun searchChannels(query: String): List<Channel> = io {
@@ -144,6 +144,19 @@ class YoutubeSource(
     override suspend fun switchVideo(plan: PlaybackPlan.Adaptive, candidateId: String): PlaybackPlan.Adaptive = io {
         val info = StreamInfo.getInfo(service, YoutubeIds.videoUrl(plan.videoId))
         streams.switch(info, plan, candidateId)
+    }
+
+    /**
+     * The Videos and Live tabs list durations, which RSS lacks: one channel page and two tab
+     * requests. Shorts are left out (YouTube lists no durations there).
+     */
+    override suspend fun durations(channelId: String): Map<String, Long> = io {
+        val info = ChannelInfo.getInfo(service, YoutubeIds.channelUrl(channelId))
+        info.tabs.filter { it.contentFilters.firstOrNull() in setOf(ChannelTabs.VIDEOS, ChannelTabs.LIVESTREAMS) }
+            .flatMap { tab -> runCatching { ChannelTabInfo.getInfo(service, tab).relatedItems }.getOrDefault(emptyList()) }
+            .filterIsInstance<StreamInfoItem>()
+            .mapNotNull { item -> YoutubeIds.videoIdFrom(item.url)?.let { id -> item.duration.takeIf { it > 0 }?.let { id to it } } }
+            .toMap()
     }
 
     private fun fetchFromTabs(channelId: String): ChannelFeed? {

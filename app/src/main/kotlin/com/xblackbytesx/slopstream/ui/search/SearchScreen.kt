@@ -49,11 +49,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -164,6 +172,16 @@ fun SearchBar(
     globalService: String? = "YouTube",
 ) {
     val dims = LocalDims.current
+    val isTv = LocalIsTv.current
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    // A text field keeps Up and Down for its cursor; on a remote they must leave the field,
+    // or the results can't be reached without the air cursor.
+    fun leave(direction: FocusDirection): Boolean {
+        keyboard?.hide()
+        focus.moveFocus(direction)
+        return true
+    }
     val field: @Composable (Modifier) -> Unit = { modifier ->
         OutlinedTextField(
             value = query,
@@ -173,9 +191,19 @@ fun SearchBar(
             leadingIcon = { Icon(Icons.Filled.Search, null) },
             trailingIcon = if (query.isNotEmpty()) ({ IconButton(onClick = { onQuery("") }) { Icon(Icons.Filled.Clear, "Clear") } }) else null,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
+            keyboardActions = KeyboardActions(onSearch = {
+                onSubmit()
+                if (isTv) leave(FocusDirection.Down)
+            }),
             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Palette.Accent),
-            modifier = modifier.widthIn(max = 640.dp),
+            modifier = modifier.widthIn(max = 640.dp).onPreviewKeyEvent { e ->
+                if (!isTv || e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (e.key) {
+                    Key.DirectionDown -> leave(FocusDirection.Down)
+                    Key.DirectionUp -> leave(FocusDirection.Up)
+                    else -> false
+                }
+            },
         )
     }
     val controls: @Composable () -> Unit = controls@{
@@ -215,9 +243,11 @@ fun SearchResults(state: SearchState, actions: SearchActions, restoreFocusKey: S
     val restore = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         if (restoreFocusKey == null) return@LaunchedEffect
-        // The grid keeps its scroll position itself; wait a frame for the tile to be laid out.
-        withFrameNanos { }
-        runCatching { restore.requestFocus() }
+        // The grid keeps its scroll position itself; the tile is laid out a frame or more later.
+        repeat(20) {
+            withFrameNanos { }
+            if (runCatching { restore.requestFocus(FocusDirection.Enter) }.getOrDefault(false)) return@LaunchedEffect
+        }
     }
     val channels = state.channels
     val global = state.globalResults

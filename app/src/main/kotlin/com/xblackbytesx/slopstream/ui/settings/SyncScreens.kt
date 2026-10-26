@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -50,9 +51,13 @@ import com.xblackbytesx.slopstream.data.sync.SyncScheduler
 import com.xblackbytesx.slopstream.ui.components.ListRow
 import com.xblackbytesx.slopstream.ui.components.PrimaryButton
 import com.xblackbytesx.slopstream.ui.components.SecondaryButton
+import com.xblackbytesx.slopstream.ui.components.needsLocalNetwork
+import com.xblackbytesx.slopstream.ui.components.openAppSettings
+import com.xblackbytesx.slopstream.ui.components.rememberLocalNetworkRequest
 import com.xblackbytesx.slopstream.ui.theme.LocalIsTv
 import com.xblackbytesx.slopstream.ui.theme.Palette
 import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,7 +68,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
-import javax.inject.Inject
 
 /** Where connecting stands. */
 sealed interface ConnectStep {
@@ -93,6 +97,10 @@ class SyncViewModel @Inject constructor(
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
+    /** The address could not be reached with "Nearby devices" refused: offer the settings. */
+    private val _blocked = MutableStateFlow(false)
+    val blocked: StateFlow<Boolean> = _blocked.asStateFlow()
+
     /** Replace this device's library with the server's (default: merge). */
     var replace by mutableStateOf(false)
 
@@ -115,13 +123,23 @@ class SyncViewModel @Inject constructor(
         }
     }
 
-    /** Checks the address answers like a Slopstream server before going on. */
-    fun checkAddress(input: String) = work {
+    /**
+     * Checks the address answers like a Slopstream server before going on. [localAllowed]:
+     * whether Android lets the app reach the home network (false: "Nearby devices" refused).
+     */
+    fun checkAddress(input: String, localAllowed: Boolean = true) = work {
+        _blocked.value = false
         val url = SyncClient.parseServer(input)
             ?: throw SyncException("Enter the server's address, like slopstream.example.com (https), or a LAN address")
         // An unauthenticated /me answers 401 on a Slopstream server.
         val probe = runCatching { SyncClient(http, url).me() }.exceptionOrNull()
         if (probe !is com.xblackbytesx.slopstream.data.sync.SyncUnauthorizedException) {
+            if (!localAllowed && probe !is com.xblackbytesx.slopstream.data.sync.SyncRefusedException) {
+                _blocked.value = true
+                throw SyncException(
+                    "Android kept Slopstream off your home network. Allow \"Nearby devices\" for Slopstream, then try again.",
+                )
+            }
             throw SyncException("No Slopstream server answers at $url" + (probe?.message?.let { ": $it" } ?: ""))
         }
         _step.value = ConnectStep.Method(url, SyncClient.needsWarning(url))
@@ -244,7 +262,18 @@ fun SyncConnectScreen(onDone: () -> Unit, vm: SyncViewModel = hiltViewModel()) {
     val step by vm.step.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
-    ConnectContent(step, error, busy, vm.replace, { vm.replace = it }, vm::checkAddress, vm::startPairing, vm::useToken, vm::back, onDone)
+    val blocked by vm.blocked.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var address by remember { mutableStateOf("") }
+    // Asked on Continue, when the user means to reach a server, never earlier.
+    val askLocal = rememberLocalNetworkRequest { granted -> vm.checkAddress(address, localAllowed = granted) }
+    ConnectContent(
+        step, error, busy, vm.replace, { vm.replace = it },
+        onAddress = { address = it; askLocal() },
+        onPair = vm::startPairing, onToken = vm::useToken, onBack = vm::back, onDone = onDone,
+        askingLocalNetwork = needsLocalNetwork(context),
+        onOpenSettings = if (blocked) ({ openAppSettings(context) }) else null,
+    )
 }
 
 /** Stateless, so the screenshot test renders each step. */
@@ -260,6 +289,9 @@ fun ConnectContent(
     onToken: (HttpUrl, String) -> Unit,
     onBack: () -> Unit,
     onDone: () -> Unit,
+    /** Android 17+ will ask for "Nearby devices" on Continue: say why first. */
+    askingLocalNetwork: Boolean = false,
+    onOpenSettings: (() -> Unit)? = null,
 ) {
     val isTv = LocalIsTv.current
     Column(
@@ -284,6 +316,12 @@ fun ConnectContent(
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Palette.Accent),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    if (askingLocalNetwork) {
+                        Text(
+                            "Android will ask to allow \"Nearby devices\": it needs that before Slopstream can reach a server on your home network.",
+                            style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         PrimaryButton("Continue", { onAddress(address) }, enabled = address.isNotBlank() && !busy)
                         SecondaryButton("Cancel", onDone)
@@ -351,6 +389,7 @@ fun ConnectContent(
                 }
             }
             error?.let { Text(it, color = Palette.Live) }
+            onOpenSettings?.let { SecondaryButton("Open app settings", it) }
         }
     }
 }

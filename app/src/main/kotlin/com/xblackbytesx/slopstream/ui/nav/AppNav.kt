@@ -30,6 +30,8 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -191,32 +193,45 @@ fun AppNav(nav: NavHostController, startDestination: Any, enterPip: () -> Unit, 
         }
     }
 
-    if (!showChrome) {
-        host(Modifier.fillMaxSize().background(Palette.Background))
-        return
-    }
-    AppChrome(current = TOP_LEVEL.indexOf(current), onSelect = { goTop(TOP_LEVEL[it]) }, hasShorts = hasShorts, content = host)
+    // One place in the tree for the NavHost, player or not: composing it elsewhere for the
+    // player rebuilt it, and the list screens lost the tile to focus on the way back.
+    AppChrome(
+        current = TOP_LEVEL.indexOf(current),
+        onSelect = { goTop(TOP_LEVEL[it]) },
+        hasShorts = hasShorts,
+        showNav = showChrome,
+        content = host,
+    )
 }
 
 /**
  * The navigation around top-level screens: a left rail on TV, a bottom bar on touch devices.
  * Stateless, so screenshot tests render it with fake content. [current] indexes the top-level
- * destinations (-1 for none).
+ * destinations (-1 for none). [showNav] false (the player) hides the navigation, never the
+ * content's place in the tree: [content] keeps its state either way.
  */
 @Composable
-fun AppChrome(current: Int, onSelect: (Int) -> Unit, hasShorts: Boolean = true, content: @Composable (Modifier) -> Unit) {
+fun AppChrome(
+    current: Int,
+    onSelect: (Int) -> Unit,
+    hasShorts: Boolean = true,
+    showNav: Boolean = true,
+    content: @Composable (Modifier) -> Unit,
+) {
     val selected = TOP_LEVEL.getOrNull(current)
     val shown = TOP_LEVEL.filter { hasShorts || it.route != ShortsRoute }
     if (LocalIsTv.current) {
         Row(Modifier.fillMaxSize().background(Palette.Background)) {
-            TvRail(shown, selected) { onSelect(TOP_LEVEL.indexOf(it)) }
+            if (showNav) TvRail(shown, selected) { onSelect(TOP_LEVEL.indexOf(it)) }
             content(Modifier.weight(1f).fillMaxHeight())
         }
     } else {
         Scaffold(
             containerColor = Palette.Background,
+            // The player draws edge to edge; the list screens keep clear of the system bars.
+            contentWindowInsets = if (showNav) ScaffoldDefaults.contentWindowInsets else WindowInsets(0),
             bottomBar = {
-                NavigationBar(containerColor = Palette.Surface) {
+                if (showNav) NavigationBar(containerColor = Palette.Surface) {
                     shown.forEach { t ->
                         if (t.tvOnly) return@forEach
                         NavigationBarItem(

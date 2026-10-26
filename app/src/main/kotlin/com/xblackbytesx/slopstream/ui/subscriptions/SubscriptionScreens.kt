@@ -60,10 +60,11 @@ import com.xblackbytesx.slopstream.ui.components.EmptyState
 import com.xblackbytesx.slopstream.ui.components.ListRow
 import com.xblackbytesx.slopstream.ui.components.PrimaryButton
 import com.xblackbytesx.slopstream.ui.components.ScreenHeader
-import com.xblackbytesx.slopstream.ui.components.ServiceBar
 import com.xblackbytesx.slopstream.ui.components.SecondaryButton
+import com.xblackbytesx.slopstream.ui.components.ServiceBar
 import com.xblackbytesx.slopstream.ui.components.matchesWords
 import com.xblackbytesx.slopstream.ui.components.relativeTime
+import com.xblackbytesx.slopstream.ui.components.rememberLocalNetworkRequest
 import com.xblackbytesx.slopstream.ui.feed.refreshStatus
 import com.xblackbytesx.slopstream.ui.theme.LocalDims
 import com.xblackbytesx.slopstream.ui.theme.LocalIsTv
@@ -318,8 +319,10 @@ fun ImportScreen(vm: ImportViewModel = hiltViewModel()) {
     var pickerMissing by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::importUri) }
 
+    // The LAN page is reached from another device: Android 17+ asks first ("Nearby devices").
+    val startLan = rememberLocalNetworkRequest { vm.startLan() }
     // A TV rarely has a file picker: open the LAN page right away there.
-    LaunchedEffect(isTv) { if (isTv) vm.startLan() }
+    LaunchedEffect(isTv) { if (isTv) startLan() }
 
     Column(Modifier.fillMaxSize().padding(horizontal = dims.gutter), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         ScreenHeader("Import subscriptions", modifier = Modifier.padding(start = 0.dp))
@@ -336,10 +339,10 @@ fun ImportScreen(vm: ImportViewModel = hiltViewModel()) {
                     picker.launch(arrayOf("application/zip", "application/json", "text/csv", "text/comma-separated-values", "text/plain", "application/octet-stream"))
                 } catch (e: ActivityNotFoundException) {
                     pickerMissing = true
-                    vm.startLan()
+                    startLan()
                 }
             }, icon = Icons.Filled.Download)
-            if (state.lanAddress == null) SecondaryButton("Send from another device", vm::startLan, icon = Icons.Filled.Wifi)
+            if (state.lanAddress == null) SecondaryButton("Send from another device", startLan, icon = Icons.Filled.Wifi)
         }
         if (pickerMissing) Text("This device has no file picker; use the address below instead.", color = Palette.TextDim)
         state.lanAddress?.let { address ->

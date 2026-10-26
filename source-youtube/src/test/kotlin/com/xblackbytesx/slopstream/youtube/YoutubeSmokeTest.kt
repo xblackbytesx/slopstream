@@ -81,6 +81,17 @@ class YoutubeSmokeTest {
         assertNotNull("no second page", next)
     }
 
+    /** Durations (decision 21): the tabs give them for the videos RSS lists without. */
+    @Test
+    fun durationsFromTheChannelTabs() = runTest(timeout = 2.minutes) {
+        val rss = RssFeedFetcher(client).fetch(channel).items.filter { it.kind == VideoKind.VIDEO }.map { it.remoteId }
+        val durations = source.durations(channel)
+        val covered = rss.count { it in durations }
+        println("durations: ${durations.size} from the tabs; $covered of ${rss.size} RSS videos covered; e.g. ${durations.entries.take(3)}")
+        assertTrue("no durations", durations.isNotEmpty())
+        assertTrue("the newest RSS video has none", rss.firstOrNull()?.let { it in durations } ?: true)
+    }
+
     @Test
     fun videoSearchReturnsChannelIds() = runTest(timeout = 2.minutes) {
         val found = source.searchVideos("linus tech tips water cooling")

@@ -14,6 +14,7 @@ import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 import java.net.InetAddress
+import java.util.concurrent.TimeUnit
 
 /** The server could not be reached or refused the request; [message] says why. */
 open class SyncException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -33,6 +34,10 @@ interface SyncApi {
     suspend fun me(): Person
     suspend fun feed(request: FeedRequest): FeedResponse
     suspend fun refreshFeed(): FeedRefresh
+    suspend fun reportDurations(report: FeedDurations): DurationsStored
+
+    /** Long-poll: answers within ~25 s, at once when [since] is not the server's number. */
+    suspend fun changes(since: Long): ChangesAnswer
 }
 
 /**
@@ -62,6 +67,15 @@ class SyncClient(private val http: OkHttpClient, private val base: HttpUrl, priv
 
     override suspend fun refreshFeed(): FeedRefresh = call("POST", "feed/refresh", null, FeedRefresh.serializer())
 
+    override suspend fun reportDurations(report: FeedDurations): DurationsStored =
+        call("POST", "feed/durations", body(FeedDurations.serializer(), report), DurationsStored.serializer())
+
+    override suspend fun changes(since: Long): ChangesAnswer =
+        call("GET", if (since >= 0) "changes?since=$since" else "changes", null, ChangesAnswer.serializer(), waiting)
+
+    /** The long-poll is held up to ~25 s: a read timeout beyond that, for this call only. */
+    private val waiting by lazy { http.newBuilder().readTimeout(40, TimeUnit.SECONDS).build() }
+
     suspend fun pairStart(deviceName: String): PairStarted =
         call("POST", "pair/start", body(PairStart.serializer(), PairStart(deviceName)), PairStarted.serializer())
 
@@ -73,14 +87,20 @@ class SyncClient(private val http: OkHttpClient, private val base: HttpUrl, priv
 
     /** [serializer] null: the answer is ignored and `T` is Unit. */
     @Suppress("UNCHECKED_CAST")
-    private suspend fun <T> call(method: String, path: String, body: RequestBody?, serializer: KSerializer<T>?): T =
+    private suspend fun <T> call(
+        method: String,
+        path: String,
+        body: RequestBody?,
+        serializer: KSerializer<T>?,
+        client: OkHttpClient = http,
+    ): T =
         withContext(Dispatchers.IO) {
             val url = base.resolve("api/v1/$path") ?: throw SyncException("Bad server address")
             val builder = Request.Builder().url(url).method(method, body ?: if (method == "GET") null else ByteArray(0).toRequestBody())
                 .header("Accept", "application/json")
             token?.let { builder.header("Authorization", "Bearer $it") }
             try {
-                http.newCall(builder.build()).execute().use { r ->
+                client.newCall(builder.build()).execute().use { r ->
                     val text = r.body.string()
                     when {
                         r.code == 401 -> throw SyncUnauthorizedException()

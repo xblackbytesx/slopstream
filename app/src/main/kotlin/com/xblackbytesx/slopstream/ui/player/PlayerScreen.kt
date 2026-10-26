@@ -1,5 +1,6 @@
 package com.xblackbytesx.slopstream.ui.player
 
+import android.content.res.Configuration
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
@@ -73,6 +74,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -123,7 +125,9 @@ fun PlayerScreen(onBack: () -> Unit, enterPip: () -> Unit, vm: PlayerViewModel =
 /**
  * The video surface plus everything drawn over it. Remote: OK plays/pauses, left/right seek
  * (faster the longer you hold), up/down reveal the controls, back hides them, then leaves.
- * Touch: tap toggles controls, double-tap the sides to seek.
+ * Touch: tap toggles controls, double-tap the sides to seek; on phones in landscape, swipe up or
+ * down on the left half for brightness and on the right half for volume (not in Shorts, whose
+ * pager swipes vertically).
  */
 @OptIn(UnstableApi::class)
 @Composable
@@ -151,6 +155,9 @@ fun PlayerChrome(
     var showQuality by remember { mutableStateOf(false) }
     val rootFocus = remember { FocusRequester() }
     val playFocus = remember { FocusRequester() }
+    val swipe = rememberSwipeAdjust()
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val swipeEnabled = !isTv && landscape && !portraitShorts && !inPip && !showComments
 
     fun poke() { lastInteraction = System.currentTimeMillis(); visible = true }
     fun togglePlay() { if (player.isPlaying) player.pause() else { if (state.ended) player.seekTo(0); player.play() }; poke() }
@@ -197,7 +204,8 @@ fun PlayerChrome(
                         }
                     },
                 )
-            },
+            }
+            .swipeAdjust(swipe, swipeEnabled),
     ) {
         AndroidView(
             factory = { ctx ->
@@ -218,6 +226,8 @@ fun PlayerChrome(
         if (state.resolving || (state.buffering && !state.ended)) {
             CircularProgressIndicator(Modifier.align(Alignment.Center).size(48.dp), color = Palette.Accent, strokeWidth = 3.dp)
         }
+
+        SwipeAdjustIndicator(swipe, Modifier.align(Alignment.Center))
 
         if (!inPip) {
             AnimatedVisibility(visible = visible || state.ended || state.error != null, enter = fadeIn(), exit = fadeOut()) {
