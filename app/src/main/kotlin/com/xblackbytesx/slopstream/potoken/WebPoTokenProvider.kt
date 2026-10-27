@@ -21,6 +21,8 @@ import org.schabi.newpipe.extractor.services.youtube.YoutubeParsingHelper
  * generator is created once, recreated when it expires or fails, and the streaming token is
  * minted exactly once per generator before any player token, as BotGuard expects.
  * Devices without a usable WebView simply get no tokens; the extractor then uses other clients.
+ * Ported from NewPipe's PoTokenProviderImpl (Copyright (C) NewPipe contributors,
+ * GPL-3.0-or-later), RxJava and Handler replaced by a coroutine Mutex.
  */
 class WebPoTokenProvider(
     private val context: Context,

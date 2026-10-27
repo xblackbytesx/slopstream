@@ -12,8 +12,8 @@ import kotlinx.serialization.json.putJsonObject
 import java.util.Base64
 
 /*
- * BotGuard request/response plumbing, ported from NewPipe's JavaScriptUtil.kt (GPL-3.0) onto
- * kotlinx.serialization and java.util.Base64.
+ * BotGuard request/response plumbing, ported from NewPipe's JavaScriptUtil.kt (Copyright (C)
+ * NewPipe contributors, GPL-3.0-or-later) onto kotlinx.serialization and java.util.Base64.
  */
 
 class PoTokenException(message: String) : Exception(message)

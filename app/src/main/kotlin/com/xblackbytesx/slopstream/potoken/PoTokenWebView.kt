@@ -28,8 +28,9 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Runs YouTube's BotGuard in a hidden, network-blocked WebView to mint proof-of-origin tokens.
- * Ported from NewPipe's PoTokenWebView (GPL-3.0), RxJava replaced by coroutines and the
- * BotGuard requests sent through the app's OkHttp client.
+ * Ported from NewPipe's PoTokenWebView (Copyright (C) NewPipe contributors, GPL-3.0-or-later),
+ * RxJava replaced by coroutines and the BotGuard requests sent through the app's OkHttp client.
+ * `assets/po_token.html` is NewPipe's page, unmodified.
  *
  * Lifecycle: [create] loads the page, fetches the challenge, runs it and obtains an integrity
  * token; [generate] can then be called many times until [isExpired].

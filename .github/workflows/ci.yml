@@ -10,7 +10,6 @@ on:
 
 jobs:
   test:
-    # No `container:`: JS actions need node, which the runner image has.
     runs-on: ubuntu-latest
     env:
       # Keep in lockstep with docker/Dockerfile. AGP also wants build-tools 36.
@@ -42,9 +41,7 @@ jobs:
       - name: Install Android SDK and Gradle
         run: |
           set -euo pipefail
-          # act_runner images run as root without sudo; hosted ones have it.
-          SUDO=$(command -v sudo || true)
-          $SUDO mkdir -p /opt/android-sdk /opt/gradle && $SUDO chown -R "$(id -u)" /opt/android-sdk /opt/gradle
+          sudo mkdir -p /opt/android-sdk /opt/gradle && sudo chown -R "$(id -u)" /opt/android-sdk /opt/gradle
           if [ ! -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
             curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS_VERSION}_latest.zip" -o /tmp/ct.zip
             mkdir -p "$ANDROID_HOME/cmdline-tools"
@@ -71,7 +68,7 @@ jobs:
 
       - name: Keep the test reports when something failed
         if: failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: test-reports
           path: |

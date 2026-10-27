@@ -41,9 +41,10 @@ with caches outside the repo and no committed `local.properties`.
 - `make screenshots`: phone (`w411dp-h891dp-port-xxhdpi`) and TV
   (`w960dp-h540dp-land-television-xhdpi`) renders. Look at them after UI changes.
 - Kotlin warnings stay at zero.
-- CI (`.gitea/workflows/ci.yml`): the `make test` suites plus a debug build on every push.
-  `release.yml` on a `vX.Y.Z` tag: tests, then a signed release APK attached to the Gitea
-  release (Obtainium); secrets listed in its header. The smoke tests never run in CI.
+- CI (GitHub Actions, primary since 2026-10-27; it was Gitea before): `.github/workflows/ci.yml`
+  runs the `make test` suites plus a debug build on every push. `release.yml` on a `vX.Y.Z`
+  tag: tests, then a signed release APK attached to the GitHub release (Obtainium); secrets
+  listed in its header. The smoke tests never run in CI.
 
 ## Modules
 
@@ -122,7 +123,7 @@ A new service is a new JVM module implementing `ContentSource`, registered in
     - Playback: `delivery/info` returns one **muxed HLS playlist per quality**, ranked by
       `StreamSelector`, so the plan is `PlaybackPlan.Manifest` for now. The delivery
       endpoint is rate limited: call it once per play, never to prefetch.
-    - Live reports on the user's account (2026-10-22, plan "LTT Supporter (Alpha)"): the
+    - Live reports on the user's account (2026-10-22, a supporter plan): the
       `sails.sid` session works; list posts carry the channel as an object; H.264 only,
       360p to 1080p at 29.97 fps (`hls.fmp4` offers the same codecs); the 4K variant is
       `enabled=false` with an empty URL (not in that plan), and the mapping skips it.
