@@ -163,6 +163,8 @@ class FloatplaneSmokeTest {
         }
         val attachment = FloatplaneMapping.firstPlayable(post) ?: error("post $postId has no playable attachment")
 
+        comments(api, source, creators.flatMap { c -> api.posts(c.id, limit = 5).filter { it.isAccessible } }.map { it.id }, findings)
+
         section("Delivery onDemand (default outputKind)")
         val delivery = api.delivery("onDemand", attachment.id)
         printDelivery(delivery)
@@ -202,6 +204,59 @@ class FloatplaneSmokeTest {
 
         section("FINDINGS (paste this back)")
         findings.forEach { println("  - ${redact(it)}") }
+    }
+
+    /**
+     * The spec's comment paging, checked: does `fetchAfter` (last comment id) move on, do the
+     * inline replies come oldest first, and does `rid` (last inline reply) continue after them?
+     * Prints counts, ids and dates only, plus whether texts look like HTML; no comment text.
+     */
+    private suspend fun comments(api: FloatplaneApi, source: FloatplaneSource, postIds: List<String>, findings: MutableList<String>) {
+        section("Comments")
+        val counted = postIds.map { id -> id to (runCatching { api.comments(id, 20) }.getOrElse { e -> println("  $id failed: $e"); findings += "comments $id: $e"; return }) }
+        counted.forEach { (id, page) -> println("  post $id: ${page.size} comments, ${page.sumOf { it.totalReplies }} replies") }
+        val (postId, first) = counted.maxByOrNull { (_, page) -> page.size + page.sumOf { it.totalReplies } } ?: return
+        val owner = FloatplaneMapping.ownerOf(api.post(postId))
+        val html = first.count { Regex("<[a-z/]|&[a-z#0-9]+;").containsMatchIn(it.text) }
+        println("  post $postId owner=$owner: ${first.size} comments, pinned=${first.count { it.pinDate != null }} byOwner=${first.count { it.user.id == owner }} htmlish=$html")
+        first.take(6).forEach { println("    ${it.id} ${it.postDate} likes=${it.interactionCounts?.like}/${it.likes} replies=${it.replies?.size}/${it.totalReplies}") }
+        findings += "comments on $postId: first page ${first.size}, owner known=${owner != null}, byOwner=${first.count { it.user.id == owner }}, pinned=${first.count { it.pinDate != null }}, htmlish texts=$html"
+        findings += "comment order: " + first.mapNotNull { it.postDate }.let { d -> if (d == d.sorted()) "oldest first" else if (d == d.sortedDescending()) "newest first" else "mixed (ranked?)" }
+
+        if (first.size == 20) {
+            val second = api.comments(postId, 20, fetchAfter = first.last().id)
+            val overlap = second.count { c -> first.any { it.id == c.id } }
+            println("  page 2 after ${first.last().id}: ${second.size} comments, $overlap repeated")
+            findings += "comments page 2: ${second.size}, repeated from page 1: $overlap"
+        }
+
+        val threaded = first.filter { it.totalReplies > it.replies.orEmpty().size && it.replies.orEmpty().isNotEmpty() }.maxByOrNull { it.totalReplies }
+            ?: first.filter { it.replies.orEmpty().isNotEmpty() }.maxByOrNull { it.totalReplies }
+        if (threaded == null) {
+            findings += "replies: no comment with inline replies on that page"
+        } else {
+            val inline = threaded.replies.orEmpty()
+            val dates = inline.mapNotNull { it.postDate }
+            val more = api.replies(threaded.id, postId, 20, inline.last().id)
+            val overlap = more.count { r -> inline.any { it.id == r.id } }
+            val after = more.mapNotNull { it.postDate }.all { d -> dates.all { it <= d } }
+            println("  ${threaded.id}: ${inline.size} inline of ${threaded.totalReplies}, dates=$dates; after rid ${more.size}, $overlap repeated, all later=$after")
+            findings += "replies: inline ${inline.size} of ${threaded.totalReplies} (${if (dates == dates.sorted()) "oldest first" else "NOT oldest first"}); after rid: ${more.size}, repeated $overlap, all later=$after"
+        }
+
+        // The same through the source, as the app pages it.
+        val mapped = source.comments(postId)
+        val withReplies = mapped.comments.firstOrNull { it.replies != null }
+        var replies = 0
+        var cursor = withReplies?.replies
+        var pages = 0
+        while (cursor != null && pages < 10) {
+            val p = source.comments(postId, cursor)
+            replies += p.comments.size
+            cursor = p.next
+            pages++
+        }
+        findings += "source: ${mapped.comments.size} comments, more=${mapped.next != null}; replies of ${withReplies?.id}: $replies of ${withReplies?.replyCount} in $pages pages"
     }
 
     private fun printDelivery(d: DeliveryDto) {

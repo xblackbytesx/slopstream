@@ -24,7 +24,8 @@ for phones, tablets and TVs (Android 11+, including the NVIDIA Shield and Google
 - Every channel page can go back through the channel's whole history: "Load older videos"
   at the end of each tab fetches the next page, one press at a time.
 - Search your library, or YouTube itself when you ask for it.
-- Comments, if you turn them on: loaded only when you open them, never stored.
+- Comments on YouTube, Floatplane and Sauce+, if you turn them on: loaded only when you open
+  them, never stored.
 - Import from NewPipe (subscriptions JSON or database zip) or Google Takeout
   (`subscriptions.csv`). On a TV, the import screen shows an address to open from your
   phone.

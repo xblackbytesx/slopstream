@@ -1,0 +1,30 @@
+[
+ {
+  "id": "r3",
+  "blogPost": "postC",
+  "user": {"id": "u4", "username": "viewer_four", "profileImage": {"width": 100, "height": 100, "path": "https://pbs.example/u4.png"}},
+  "text": "Third reply",
+  "replying": "c1",
+  "postDate": "2026-10-21T12:00:00.000Z",
+  "editDate": null,
+  "likes": 1,
+  "dislikes": 0,
+  "score": 1,
+  "interactionCounts": {"like": 1, "dislike": 0},
+  "userInteraction": null
+ },
+ {
+  "id": "r4",
+  "blogPost": "postC",
+  "user": {"id": "u5", "username": "viewer_five", "profileImage": {"width": 100, "height": 100, "path": "https://pbs.example/u5.png"}},
+  "text": "Fourth reply",
+  "replying": "c1",
+  "postDate": "2026-10-21T13:00:00.000Z",
+  "editDate": null,
+  "likes": 0,
+  "dislikes": 0,
+  "score": 0,
+  "interactionCounts": {"like": 0, "dislike": 0},
+  "userInteraction": null
+ }
+]

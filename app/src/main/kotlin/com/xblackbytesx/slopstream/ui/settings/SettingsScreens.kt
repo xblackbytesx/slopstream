@@ -144,7 +144,7 @@ fun SettingsScreen(
         item {
             ToggleRow(
                 "Comments",
-                "A Comments button in the player and the video menu, for YouTube. Loaded only when you open them, never kept.",
+                "A Comments button in the player and the video menu, for YouTube, Floatplane and Sauce+. Loaded only when you open them, never kept.",
                 settings.showComments,
                 vm::setComments,
             )

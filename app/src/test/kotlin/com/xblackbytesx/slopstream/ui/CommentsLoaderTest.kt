@@ -44,6 +44,19 @@ class CommentsFake : FakeSource() {
 @OptIn(ExperimentalCoroutinesApi::class)
 class CommentsLoaderTest {
     @Test
+    fun aRepeatedPageAddsNothingAndEndsTheList() = runTest(UnconfinedTestDispatcher()) {
+        val source = object : FakeSource() {
+            override suspend fun comments(videoId: String, from: CommentsPage.Cursor?) =
+                CommentsPage(listOf(comment("c1"), comment("c2")), CommentsPage.Cursor("again"))
+        }
+        val loader = CommentsLoader(source, "v1", this)
+        loader.start()
+        loader.more()
+        assertEquals(listOf("c1", "c2"), loader.state.value.nodes.map { it.comment.id })
+        assertNull(loader.state.value.next)
+    }
+
+    @Test
     fun pagesLoadOnlyWhenAsked() = runTest(UnconfinedTestDispatcher()) {
         val source = CommentsFake()
         val loader = CommentsLoader(source, "v1", this)

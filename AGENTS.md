@@ -230,7 +230,16 @@ A new service is a new JVM module implementing `ContentSource`, registered in
       the video keeps playing; Back closes it) or the video menu (`CommentsRoute`).
     - `CommentsLoader` holds pages in memory only, loads the first page when opened and the
       rest when asked; nothing is written anywhere.
-    - `make smoke` checks a first page, a second page and replies. Floatplane comments: later.
+    - `make smoke` checks a first page, a second page and replies.
+    - Floatplane and Sauce+ (2026-10-28), from the community spec, unverified live until
+      `make smoke-floatplane` reports on them: `/api/v3/comment` 20 at a time after the last
+      comment id (`fetchAfter`); a comment arrives with its first few replies, shown first
+      without a request, then `/api/v3/comment/replies` after the last one shown (`rid`) until
+      `totalReplies`. The first page reads the post for its creator's account, whose comments
+      are marked as the uploader's; pinned is `pinDate`. Plain text with a timestamp
+      (`Comment.postedAt`, worded on the device). Livestreams have chat instead: none here.
+    - `CommentsLoader` drops comments it already shows and ends a list whose page adds nothing,
+      so a service that repeats a page can neither crash the list nor loop.
     - History stays where it is (the user's call, 2026-10-24): a button on Watch later.
 
 21. **Long-poll and durations** (2026-10-24, server 0.3.0; its AGENTS.md has the protocol).

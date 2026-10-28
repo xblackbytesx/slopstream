@@ -35,6 +35,7 @@ import com.xblackbytesx.slopstream.core.CommentsPage
 import com.xblackbytesx.slopstream.core.ContentSource
 import com.xblackbytesx.slopstream.core.SourceException
 import com.xblackbytesx.slopstream.ui.components.ChannelAvatar
+import com.xblackbytesx.slopstream.ui.components.relativeTime
 import com.xblackbytesx.slopstream.ui.theme.Palette
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -90,7 +91,12 @@ class CommentsLoader(private val source: ContentSource, private val videoId: Str
             try {
                 val p = source.comments(videoId, from)
                 _state.update { s ->
-                    s.copy(nodes = s.nodes + p.comments.map(::CommentNode), next = p.next, disabled = p.disabled, loading = false)
+                    // Rows are keyed by id: a page that repeats one must not crash the list, and
+                    // a page of nothing new ends it.
+                    val known = s.nodes.mapTo(HashSet()) { it.comment.id }
+                    val fresh = p.comments.filter { known.add(it.id) }
+                    val next = p.next.takeIf { fresh.isNotEmpty() || p.comments.isEmpty() }
+                    s.copy(nodes = s.nodes + fresh.map(::CommentNode), next = next, disabled = p.disabled, loading = false)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -119,7 +125,11 @@ class CommentsLoader(private val source: ContentSource, private val videoId: Str
         scope.launch {
             try {
                 val p = source.comments(videoId, from)
-                edit(id) { it.copy(replies = it.replies + p.comments, next = p.next, loading = false) }
+                edit(id) { node ->
+                    val known = node.replies.mapTo(HashSet()) { it.id }
+                    val fresh = p.comments.filter { known.add(it.id) }
+                    node.copy(replies = node.replies + fresh, next = p.next.takeIf { fresh.isNotEmpty() }, loading = false)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: SourceException) {
@@ -200,7 +210,7 @@ private fun CommentRow(c: Comment, modifier: Modifier = Modifier, small: Boolean
                     fontWeight = if (c.byUploader) FontWeight.Bold else FontWeight.Medium,
                     color = if (c.byUploader) Palette.Accent else Palette.Text,
                 )
-                c.published?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = Palette.TextFaint) }
+                (c.published ?: c.postedAt?.let { relativeTime(it.toEpochMilli()) })?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = Palette.TextFaint) }
             }
             Text(c.text, style = if (small) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

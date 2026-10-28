@@ -117,6 +117,31 @@ data class PostDetailDto(
     val isAccessible: Boolean = true,
     val attachmentOrder: List<String> = emptyList(),
     val videoAttachments: List<VideoAttachmentDto> = emptyList(),
+    /** The creator object; its `owner` is a user id or a user object. */
+    val creator: JsonElement? = null,
+)
+
+@Serializable
+data class CommentUserDto(val id: String, val username: String, val profileImage: ImageDto? = null)
+
+@Serializable
+data class InteractionCountsDto(val like: Int = 0, val dislike: Int = 0)
+
+/**
+ * A comment or a reply. A top-level comment carries its first few [replies] (3 in the spec)
+ * and [totalReplies]; a reply carries neither.
+ */
+@Serializable
+data class CommentDto(
+    val id: String,
+    val user: CommentUserDto,
+    val text: String = "",
+    val postDate: String? = null,
+    val pinDate: String? = null,
+    val likes: Int? = null,
+    val interactionCounts: InteractionCountsDto? = null,
+    val totalReplies: Int = 0,
+    val replies: List<CommentDto>? = null,
 )
 
 @Serializable

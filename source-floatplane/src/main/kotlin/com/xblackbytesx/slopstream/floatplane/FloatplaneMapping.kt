@@ -1,6 +1,8 @@
 package com.xblackbytesx.slopstream.floatplane
 
 import com.xblackbytesx.slopstream.core.Channel
+import com.xblackbytesx.slopstream.core.Comment
+import com.xblackbytesx.slopstream.core.CommentsPage
 import com.xblackbytesx.slopstream.core.VideoItem
 import com.xblackbytesx.slopstream.core.VideoKind
 import com.xblackbytesx.slopstream.core.playback.VideoCandidate
@@ -118,6 +120,29 @@ object FloatplaneMapping {
                 )
             }
     }
+
+    /** The user id of the post's creator, to mark their comments. */
+    fun ownerOf(post: PostDetailDto): String? = when (val owner = (post.creator as? JsonObject)?.get("owner")) {
+        is JsonObject -> owner["id"]?.jsonPrimitive?.contentOrNull
+        is JsonPrimitive -> owner.contentOrNull
+        else -> null
+    }
+
+    /** Floatplane sends plain text and a timestamp; likes are the like count, not the score. */
+    fun comment(c: CommentDto, ownerId: String?, replies: CommentsPage.Cursor?) = Comment(
+        id = c.id,
+        author = c.user.username,
+        avatarUrl = c.user.profileImage?.pick(88),
+        text = c.text.trim(),
+        likes = c.interactionCounts?.like ?: c.likes,
+        published = null,
+        replyCount = c.totalReplies,
+        pinned = c.pinDate != null,
+        heartedByUploader = false,
+        byUploader = ownerId != null && c.user.id == ownerId,
+        replies = replies,
+        postedAt = c.postDate?.let { runCatching { Instant.parse(it) }.getOrNull() },
+    )
 
     /** The livestream URL: live variants carry no video metadata, the player's ABR picks. */
     fun liveUrl(delivery: DeliveryDto): String? = delivery.groups.firstNotNullOfOrNull { group ->

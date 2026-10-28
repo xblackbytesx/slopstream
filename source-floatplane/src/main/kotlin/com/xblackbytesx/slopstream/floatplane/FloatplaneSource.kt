@@ -3,6 +3,7 @@ package com.xblackbytesx.slopstream.floatplane
 import com.xblackbytesx.slopstream.core.ArchivePage
 import com.xblackbytesx.slopstream.core.Channel
 import com.xblackbytesx.slopstream.core.ChannelFeed
+import com.xblackbytesx.slopstream.core.CommentsPage
 import com.xblackbytesx.slopstream.core.ContentSource
 import com.xblackbytesx.slopstream.core.SourceAuthException
 import com.xblackbytesx.slopstream.core.SourceCapabilities
@@ -45,6 +46,7 @@ class FloatplaneSource(
         prefetchPlayback = false,
         catalog = site.globalSubscriptions,
         archiveKinds = setOf(VideoKind.VIDEO),
+        hasComments = true,
     )
 
     /** Who is signed in; also the check that a session works. */
@@ -103,6 +105,60 @@ class FloatplaneSource(
     }
 
     private class PostsCursor(val creator: CreatorDto, val offset: Int)
+
+    /**
+     * A post's comments [COMMENTS_PAGE] at a time, after the last comment shown. The first page
+     * also reads the post, for its creator's account: their comments are marked as the
+     * uploader's. A livestream has a chat instead, which is not shown here.
+     */
+    override suspend fun comments(videoId: String, from: CommentsPage.Cursor?): CommentsPage {
+        if (FloatplaneMapping.creatorOfLiveId(videoId) != null) return CommentsPage(emptyList(), null, disabled = true)
+        return when (val at = from?.handle) {
+            null -> topComments(videoId, FloatplaneMapping.ownerOf(api.post(videoId)), after = null)
+            is TopCursor -> topComments(videoId, at.owner, at.after)
+            is RepliesCursor -> replies(at)
+            else -> throw IllegalArgumentException("Not a Floatplane comments cursor")
+        }
+    }
+
+    private suspend fun topComments(postId: String, owner: String?, after: String?): CommentsPage {
+        val page = api.comments(postId, COMMENTS_PAGE, after)
+        val comments = page.map { c ->
+            val replies = if (c.totalReplies > 0) {
+                CommentsPage.Cursor(RepliesCursor(postId, c.id, owner, inline = c.replies.orEmpty(), after = null, loaded = 0, total = c.totalReplies))
+            } else {
+                null
+            }
+            FloatplaneMapping.comment(c, owner, replies)
+        }
+        val next = if (page.size < COMMENTS_PAGE) null else CommentsPage.Cursor(TopCursor(owner, page.last().id))
+        return CommentsPage(comments, next)
+    }
+
+    /** The replies that came with the comment first, then [REPLIES_PAGE] at a time after the last one shown. */
+    private suspend fun replies(at: RepliesCursor): CommentsPage {
+        val page = at.inline.ifEmpty { api.replies(at.commentId, at.postId, REPLIES_PAGE, at.after) }
+        val loaded = at.loaded + page.size
+        val next = if (page.isNotEmpty() && loaded < at.total) {
+            CommentsPage.Cursor(RepliesCursor(at.postId, at.commentId, at.owner, inline = emptyList(), after = page.last().id, loaded = loaded, total = at.total))
+        } else {
+            null
+        }
+        return CommentsPage(page.map { FloatplaneMapping.comment(it.copy(totalReplies = 0), at.owner, null) }, next)
+    }
+
+    private class TopCursor(val owner: String?, val after: String)
+
+    private class RepliesCursor(
+        val postId: String,
+        val commentId: String,
+        val owner: String?,
+        /** The replies the comment arrived with, shown first without a request. */
+        val inline: List<CommentDto>,
+        val after: String?,
+        val loaded: Int,
+        val total: Int,
+    )
 
     /** Only looks sub-channel names up when a post names its channel by id alone. */
     private suspend fun subChannelTitles(creatorId: String, posts: List<PostDto>): Map<String, String> =
@@ -172,6 +228,10 @@ class FloatplaneSource(
 
         /** Posts per older-videos page; the most the posts list hands out at once. */
         const val ARCHIVE_PAGE = 20
+
+        /** Comments per page, the spec's default; replies the same. */
+        const val COMMENTS_PAGE = 20
+        const val REPLIES_PAGE = 20
     }
 
     /** The creator's livestream, when it is on. */

@@ -99,6 +99,23 @@ class FloatplaneApi(
 
     suspend fun post(id: String): PostDetailDto = get("/api/v3/content/post", PostDetailDto.serializer()) { addQueryParameter("id", id) }
 
+    /** A post's comments in the site's order; [fetchAfter] is the last comment id of the page before. */
+    suspend fun comments(postId: String, limit: Int, fetchAfter: String? = null): List<CommentDto> =
+        get("/api/v3/comment", ListSerializer(CommentDto.serializer())) {
+            addQueryParameter("blogPost", postId)
+            addQueryParameter("limit", limit.toString())
+            fetchAfter?.let { addQueryParameter("fetchAfter", it) }
+        }
+
+    /** A comment's replies after [rid], the last reply already shown. */
+    suspend fun replies(commentId: String, postId: String, limit: Int, rid: String?): List<CommentDto> =
+        get("/api/v3/comment/replies", ListSerializer(CommentDto.serializer())) {
+            addQueryParameter("comment", commentId)
+            addQueryParameter("blogPost", postId)
+            addQueryParameter("limit", limit.toString())
+            rid?.let { addQueryParameter("rid", it) }
+        }
+
     /**
      * Stream URLs for a video attachment (`onDemand`) or a livestream id (`live`). Floatplane
      * rate limits this endpoint hard, so resolve once per play, never per tile.

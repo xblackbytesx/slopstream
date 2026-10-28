@@ -1,0 +1,15 @@
+{
+ "id": "postC",
+ "title": "A post with comments",
+ "releaseDate": "2026-10-20T12:00:00.000Z",
+ "isAccessible": true,
+ "comments": 3,
+ "creator": {
+  "id": "creatorA",
+  "owner": "owner1",
+  "title": "Creator A",
+  "urlname": "creatora"
+ },
+ "attachmentOrder": [],
+ "videoAttachments": []
+}

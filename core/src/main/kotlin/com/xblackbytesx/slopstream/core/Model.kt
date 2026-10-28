@@ -118,6 +118,8 @@ data class Comment(
     val byUploader: Boolean,
     /** Where its replies start; null without replies. */
     val replies: CommentsPage.Cursor?,
+    /** When it was posted, for a service that sends a time instead of [published] wording. */
+    val postedAt: Instant? = null,
 )
 
 data class CommentsPage(

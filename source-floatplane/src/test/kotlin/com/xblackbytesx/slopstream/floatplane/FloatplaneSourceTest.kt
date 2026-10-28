@@ -19,6 +19,9 @@ import mockwebserver3.RecordedRequest
 import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -28,6 +31,9 @@ import java.util.concurrent.CopyOnWriteArrayList
 class FloatplaneSourceTest {
     private val server = MockWebServer()
     private val routes = HashMap<String, MockResponse>()
+
+    /** Routes that answer by query, checked before [routes]. */
+    private val handlers = HashMap<String, (RecordedRequest) -> MockResponse>()
     private val seen = CopyOnWriteArrayList<RecordedRequest>()
 
     private fun fixture(name: String) = javaClass.getResource("/fixtures/floatplane/$name")!!.readText()
@@ -51,7 +57,7 @@ class FloatplaneSourceTest {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 seen += request
-                return routes[request.url.encodedPath] ?: status(404)
+                return handlers[request.url.encodedPath]?.invoke(request) ?: routes[request.url.encodedPath] ?: status(404)
             }
         }
         server.start()
@@ -204,6 +210,73 @@ class FloatplaneSourceTest {
         assertEquals(mapOf("www.floatplane.com" to server.url("/").host), plan.hostRewrites)
         assertEquals(setOf(server.url("/").host), plan.authHosts)
         assertEquals("__Host-sp-sess=sid", plan.authHeaders["Cookie"])
+    }
+
+    @Test
+    fun commentsMarkTheCreatorAndRepliesStartWithTheInlineOnes() = runTest {
+        routes["/api/v3/content/post"] = ok("post_comments.json")
+        routes["/api/v3/comment"] = ok("comments.json")
+        routes["/api/v3/comment/replies"] = ok("comment_replies.json")
+        val s = source()
+
+        val page = s.comments("postC")
+        assertEquals(listOf("c1", "c2"), page.comments.map { it.id })
+        // Two comments, under a full page: nothing more to load.
+        assertNull(page.next)
+        val pinned = page.comments[0]
+        assertTrue(pinned.pinned && pinned.byUploader)
+        assertEquals("Pinned by the creator.", pinned.text)
+        assertEquals(40, pinned.likes)
+        assertEquals(4, pinned.replyCount)
+        assertEquals("https://pbs.example/u1_100.png", pinned.avatarUrl)
+        assertEquals(Instant.parse("2026-10-21T09:00:00Z"), pinned.postedAt)
+        assertFalse(page.comments[1].byUploader || page.comments[1].pinned)
+        assertNull(page.comments[1].replies)
+        val commentRequest = seen.single { it.url.encodedPath == "/api/v3/comment" }.url
+        assertEquals("postC", commentRequest.queryParameter("blogPost"))
+        assertNull(commentRequest.queryParameter("fetchAfter"))
+
+        // The replies that came along are the first page and cost no request.
+        val inline = s.comments("postC", pinned.replies)
+        assertEquals(listOf("r1", "r2"), inline.comments.map { it.id })
+        assertTrue(inline.comments[1].byUploader)
+        assertTrue(seen.none { it.url.encodedPath == "/api/v3/comment/replies" })
+
+        val more = s.comments("postC", inline.next)
+        assertEquals(listOf("r3", "r4"), more.comments.map { it.id })
+        val replyRequest = seen.single { it.url.encodedPath == "/api/v3/comment/replies" }.url
+        assertEquals("c1", replyRequest.queryParameter("comment"))
+        assertEquals("r2", replyRequest.queryParameter("rid"))
+        // All four of the comment's replies are in.
+        assertNull(more.next)
+    }
+
+    @Test
+    fun aFullPageOfCommentsGoesOnAfterItsLastComment() = runTest {
+        routes["/api/v3/content/post"] = ok("post_comments.json")
+        fun comment(id: String) = """{"id":"$id","user":{"id":"u","username":"u"},"text":"t","postDate":"2026-10-21T09:00:00.000Z","totalReplies":0,"replies":[]}"""
+        handlers["/api/v3/comment"] = { r ->
+            val ids = if (r.url.queryParameter("fetchAfter") == null) (1..20).map { "a$it" } else listOf("b1")
+            MockResponse.Builder().code(200).body(ids.joinToString(",", "[", "]") { comment(it) }).build()
+        }
+        val s = source()
+
+        val first = s.comments("postC")
+        assertEquals(20, first.comments.size)
+        assertNotNull(first.next)
+        val second = s.comments("postC", first.next)
+        assertEquals(listOf("b1"), second.comments.map { it.id })
+        assertNull(second.next)
+        assertEquals("a20", seen.last { it.url.encodedPath == "/api/v3/comment" }.url.queryParameter("fetchAfter"))
+        // The creator is looked up once, on the first page.
+        assertEquals(1, seen.count { it.url.encodedPath == "/api/v3/content/post" })
+    }
+
+    @Test
+    fun aLivestreamHasNoComments() = runTest {
+        val page = source().comments(FloatplaneMapping.liveId("creatorA"))
+        assertTrue(page.disabled && page.comments.isEmpty())
+        assertTrue(seen.isEmpty())
     }
 
     @Test
