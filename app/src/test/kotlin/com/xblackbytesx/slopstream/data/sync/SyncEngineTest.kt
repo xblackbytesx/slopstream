@@ -66,7 +66,7 @@ class SyncEngineTest {
 
     private fun row(id: String) = VideoRow(
         source = "yt", remoteId = id, channelId = "UC1", channelName = "Channel 1", title = "Video $id",
-        publishedAt = 1L, kind = "VIDEO", thumbnailUrl = null, durationSec = 600, dateApproximate = false,
+        publishedAt = 1L, kind = "VIDEO", thumbnailUrl = null, durationSec = 600, dateApproximate = false, dateUnknown = false,
         positionMs = null, watchDurationMs = null, watched = null, inWatchLater = false,
     )
 

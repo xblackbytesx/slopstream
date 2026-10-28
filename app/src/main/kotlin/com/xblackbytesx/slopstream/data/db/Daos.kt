@@ -2,6 +2,8 @@ package com.xblackbytesx.slopstream.data.db
 
 import androidx.paging.PagingSource
 import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.RawQuery
 import androidx.room.Transaction
@@ -12,7 +14,7 @@ import kotlinx.coroutines.flow.Flow
 
 internal const val VIDEO_ROW_COLUMNS = """
     f.source, f.remoteId, f.channelId, f.channelName, f.title, f.publishedAt, f.kind,
-    f.thumbnailUrl, f.durationSec, f.dateApproximate,
+    f.thumbnailUrl, f.durationSec, f.dateApproximate, f.dateUnknown,
     w.positionMs AS positionMs, w.durationMs AS watchDurationMs, w.watched AS watched,
     (l.remoteId IS NOT NULL AND l.deletedAt IS NULL) AS inWatchLater
 """
@@ -68,7 +70,10 @@ interface SubscriptionDao {
 
 @Dao
 interface FeedDao {
-    /** Subscribed channels only: unsubscribing hides a channel's items without deleting them. */
+    /**
+     * Subscribed channels only: unsubscribing hides a channel's items without deleting them.
+     * Older videos loaded on a channel page stay on that page.
+     */
     @Query(
         """
         SELECT $VIDEO_ROW_COLUMNS
@@ -76,7 +81,7 @@ interface FeedDao {
         JOIN subscription s ON s.source = f.source AND s.remoteId = f.channelId AND s.deletedAt IS NULL
         LEFT JOIN watch_state w ON w.source = f.source AND w.remoteId = f.remoteId AND w.deletedAt IS NULL
         LEFT JOIN watch_later l ON l.source = f.source AND l.remoteId = f.remoteId
-        WHERE f.source = :source AND f.kind IN (:kinds)
+        WHERE f.source = :source AND f.kind IN (:kinds) AND f.archived = 0
         ORDER BY f.publishedAt DESC, f.remoteId
         """,
     )
@@ -102,7 +107,7 @@ interface FeedDao {
         JOIN subscription s ON s.source = f.source AND s.remoteId = f.channelId AND s.deletedAt IS NULL
         LEFT JOIN watch_state w ON w.source = f.source AND w.remoteId = f.remoteId AND w.deletedAt IS NULL
         LEFT JOIN watch_later l ON l.source = f.source AND l.remoteId = f.remoteId
-        WHERE f.source = :source AND f.kind = 'SHORT'
+        WHERE f.source = :source AND f.kind = 'SHORT' AND f.archived = 0
         ORDER BY f.publishedAt DESC, f.remoteId
         LIMIT :limit
         """,
@@ -119,8 +124,16 @@ interface FeedDao {
     @Query("SELECT remoteId FROM feed_item WHERE source = :source AND channelId = :channelId")
     suspend fun idsForChannel(source: String, channelId: String): List<String>
 
+    /** The oldest cached date of one channel and kind; undated older items are placed below it. */
+    @Query("SELECT MIN(publishedAt) FROM feed_item WHERE source = :source AND channelId = :channelId AND kind = :kind")
+    suspend fun oldest(source: String, channelId: String, kind: String): Long?
+
     @Upsert
     suspend fun upsert(rows: List<FeedItemEntity>)
+
+    /** Older videos from a channel page; rows already cached stay as they are. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun addArchived(rows: List<FeedItemEntity>)
 
     /** An item the server says is gone (an ended livestream). */
     @Query("DELETE FROM feed_item WHERE source = :source AND remoteId = :remoteId")
@@ -132,19 +145,19 @@ interface FeedDao {
     /**
      * Keeps the newest [keep] items per channel and kind. RSS only ever returns the latest 15,
      * so older items exist only here; the cap keeps the cache bounded without losing history
-     * anyone scrolls to.
+     * anyone scrolls to. Archived items are the user's own loading and are never pruned.
      */
     @Query(
         """
-        DELETE FROM feed_item WHERE source = :source AND channelId = :channelId AND kind = :kind AND remoteId NOT IN (
-            SELECT remoteId FROM feed_item WHERE source = :source AND channelId = :channelId AND kind = :kind
+        DELETE FROM feed_item WHERE source = :source AND channelId = :channelId AND kind = :kind AND archived = 0 AND remoteId NOT IN (
+            SELECT remoteId FROM feed_item WHERE source = :source AND channelId = :channelId AND kind = :kind AND archived = 0
             ORDER BY publishedAt DESC LIMIT :keep
         )
         """,
     )
     suspend fun prune(source: String, channelId: String, kind: String, keep: Int)
 
-    @Query("DELETE FROM feed_item WHERE source = :source AND channelId = :channelId AND kind = :kind AND remoteId NOT IN (:keep)")
+    @Query("DELETE FROM feed_item WHERE source = :source AND channelId = :channelId AND kind = :kind AND archived = 0 AND remoteId NOT IN (:keep)")
     suspend fun deleteMissing(source: String, channelId: String, kind: String, keep: List<String>)
 
     /**
@@ -156,7 +169,11 @@ interface FeedDao {
     suspend fun merge(source: String, channelId: String, fresh: List<FeedItemEntity>, keepPerKind: Int, completeKinds: Set<String> = emptySet()) {
         val merged = fresh.map { new ->
             val old = get(new.source, new.remoteId)
-            if (old != null && new.durationSec == null) new.copy(durationSec = old.durationSec) else new
+            when {
+                old == null -> new
+                // A refresh that meets an archived item leaves it archived (never pruned).
+                else -> new.copy(durationSec = new.durationSec ?: old.durationSec, archived = old.archived || new.archived)
+            }
         }
         upsert(merged)
         completeKinds.forEach { kind -> deleteMissing(source, channelId, kind, fresh.filter { it.kind == kind }.map { it.remoteId }) }
@@ -194,6 +211,7 @@ interface WatchDao {
         """
         SELECT l.source, l.remoteId, l.channelId, l.channelName, l.title, l.publishedAt, l.kind,
             l.thumbnailUrl, l.durationSec, 0 AS dateApproximate,
+            COALESCE((SELECT x.dateUnknown FROM feed_item x WHERE x.source = l.source AND x.remoteId = l.remoteId), 0) AS dateUnknown,
             w.positionMs AS positionMs, w.durationMs AS watchDurationMs, w.watched AS watched,
             1 AS inWatchLater
         FROM watch_later l
@@ -211,7 +229,7 @@ interface WatchDao {
             COALESCE(w.channelId, f.channelId, '') AS channelId, COALESCE(w.channelName, f.channelName, '') AS channelName,
             COALESCE(w.title, f.title, w.remoteId) AS title, COALESCE(f.publishedAt, w.updatedAt) AS publishedAt,
             COALESCE(w.kind, f.kind, 'VIDEO') AS kind, COALESCE(w.thumbnailUrl, f.thumbnailUrl) AS thumbnailUrl,
-            COALESCE(f.durationSec, w.durationMs / 1000) AS durationSec, 0 AS dateApproximate,
+            COALESCE(f.durationSec, w.durationMs / 1000) AS durationSec, 0 AS dateApproximate, COALESCE(f.dateUnknown, 0) AS dateUnknown,
             w.positionMs AS positionMs, w.durationMs AS watchDurationMs, w.watched AS watched,
             (l.remoteId IS NOT NULL AND l.deletedAt IS NULL) AS inWatchLater
         FROM watch_state w
@@ -365,6 +383,7 @@ object LibrarySearch {
         """
         SELECT f.source, f.remoteId, f.channelId, f.channelName, f.title, f.publishedAt, f.kind,
             f.thumbnailUrl, f.durationSec, 0 AS dateApproximate,
+            COALESCE((SELECT x.dateUnknown FROM feed_item x WHERE x.source = f.source AND x.remoteId = f.remoteId), 0) AS dateUnknown,
             w.positionMs AS positionMs, w.durationMs AS watchDurationMs, w.watched AS watched,
             1 AS inWatchLater
         FROM watch_later f

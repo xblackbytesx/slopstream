@@ -1,5 +1,6 @@
 package com.xblackbytesx.slopstream.youtube
 
+import com.xblackbytesx.slopstream.core.ArchivePage
 import com.xblackbytesx.slopstream.core.Channel
 import com.xblackbytesx.slopstream.core.ChannelFeed
 import com.xblackbytesx.slopstream.core.Comment
@@ -31,6 +32,7 @@ import org.schabi.newpipe.extractor.comments.CommentsInfoItem
 import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
+import org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
 import org.schabi.newpipe.extractor.search.SearchInfo
@@ -70,6 +72,7 @@ class YoutubeSource(
     override val capabilities = SourceCapabilities(
         needsLogin = false, hasShorts = true, hasLive = true, canSearchChannels = true, canSearchVideos = true,
         importsSubscriptions = true, hasComments = true, enrichesDurations = true,
+        archiveKinds = setOf(VideoKind.VIDEO, VideoKind.SHORT, VideoKind.LIVE),
     )
 
     override suspend fun searchChannels(query: String): List<Channel> = io {
@@ -159,15 +162,36 @@ class YoutubeSource(
             .toMap()
     }
 
+    /**
+     * The channel's Videos, Shorts or Live tab, a continuation page at a time (about 30 items).
+     * Dates on these tabs are relative ("3 years ago"), so the items are [VideoItem.dateApproximate].
+     */
+    override suspend fun channelPage(channelId: String, kind: VideoKind, from: ArchivePage.Cursor?): ArchivePage = io {
+        val at = from?.handle as? TabCursor
+        if (at == null) {
+            val info = ChannelInfo.getInfo(service, YoutubeIds.channelUrl(channelId))
+            val filter = TAB_KINDS.entries.firstOrNull { it.value == kind }?.key
+            val tab = info.tabs.firstOrNull { it.contentFilters.firstOrNull() == filter } ?: return@io ArchivePage(emptyList(), null)
+            val first = ChannelTabInfo.getInfo(service, tab)
+            archivePage(first.relatedItems, first.nextPage, tab, channelId, info.name, kind)
+        } else {
+            val more = ChannelTabInfo.getMoreItems(service, at.tab, at.page)
+            archivePage(more.items, more.nextPage, at.tab, channelId, at.channelName, kind)
+        }
+    }
+
+    private fun archivePage(found: List<*>, next: Page?, tab: ListLinkHandler, channelId: String, channelName: String, kind: VideoKind) =
+        ArchivePage(
+            found.filterIsInstance<StreamInfoItem>().mapNotNull { it.toVideoItem(channelId, channelName, kind) },
+            next?.takeIf { Page.isValid(it) }?.let { ArchivePage.Cursor(TabCursor(tab, it, channelName)) },
+        )
+
+    private class TabCursor(val tab: ListLinkHandler, val page: Page, val channelName: String)
+
     private fun fetchFromTabs(channelId: String): ChannelFeed? {
         val info = ChannelInfo.getInfo(service, YoutubeIds.channelUrl(channelId))
-        val kinds = mapOf(
-            ChannelTabs.VIDEOS to VideoKind.VIDEO,
-            ChannelTabs.SHORTS to VideoKind.SHORT,
-            ChannelTabs.LIVESTREAMS to VideoKind.LIVE,
-        )
         val items = info.tabs.flatMap { tab ->
-            val kind = kinds[tab.contentFilters.firstOrNull()] ?: return@flatMap emptyList()
+            val kind = TAB_KINDS[tab.contentFilters.firstOrNull()] ?: return@flatMap emptyList()
             runCatching { ChannelTabInfo.getInfo(service, tab).relatedItems }.getOrDefault(emptyList())
                 .filterIsInstance<StreamInfoItem>()
                 .mapNotNull { it.toVideoItem(channelId, info.name, kind) }
@@ -196,6 +220,7 @@ class YoutubeSource(
             thumbnailUrl = YoutubeIds.thumbnailFor(id, kind),
             durationSec = duration.takeIf { it > 0 },
             dateApproximate = date?.isApproximation ?: true,
+            dateUnknown = date == null,
         )
     }
 
@@ -218,7 +243,7 @@ class YoutubeSource(
         // Shown at about 40 dp: the smallest rendition that is still sharp.
         avatarUrl = c.uploaderAvatars.filter { it.url.isNotBlank() }
             .let { all -> all.filter { it.height >= 88 }.minByOrNull { it.height } ?: all.maxByOrNull { it.height } }?.url,
-        text = CommentText.plain(c.commentText?.content.orEmpty()),
+        text = CommentText.plain(c.commentText.content.orEmpty()),
         likes = c.likeCount.takeIf { it >= 0 },
         published = c.textualUploadDate?.takeIf { it.isNotBlank() },
         replyCount = c.replyCount.coerceAtLeast(0),
@@ -243,5 +268,14 @@ class YoutubeSource(
         } catch (e: Exception) {
             throw SourceException(e.message ?: e.javaClass.simpleName, e)
         }
+    }
+
+    private companion object {
+        /** The channel tabs we read, and the kind their items are. */
+        val TAB_KINDS = mapOf(
+            ChannelTabs.VIDEOS to VideoKind.VIDEO,
+            ChannelTabs.SHORTS to VideoKind.SHORT,
+            ChannelTabs.LIVESTREAMS to VideoKind.LIVE,
+        )
     }
 }

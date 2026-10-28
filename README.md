@@ -21,6 +21,8 @@ for phones, tablets and TVs (Android 11+, including the NVIDIA Shield and Google
 - TV: a full D-pad player (hold left or right to seek faster) and refresh-rate matching.
 - Phone: double-tap the sides to seek, swipe the left half for brightness and the right half
   for volume (landscape), picture-in-picture.
+- Every channel page can go back through the channel's whole history: "Load older videos"
+  at the end of each tab fetches the next page, one press at a time.
 - Search your library, or YouTube itself when you ask for it.
 - Comments, if you turn them on: loaded only when you open them, never stored.
 - Import from NewPipe (subscriptions JSON or database zip) or Google Takeout

@@ -249,6 +249,22 @@ A new service is a new JVM module implementing `ContentSource`, registered in
     or with comments open; the top and bottom tenth stay with the system bars. The brightness is
     reset when the player closes and reused by the next player in the same process, never saved.
 
+23. **Older videos on a channel page** (2026-10-28): a "Load older videos" button at the end of
+    each channel tab (TV and phone alike; no scroll-velocity trick) loads the next page from
+    the service (`ContentSource.channelPage`, `SourceCapabilities.archiveKinds`): YouTube's
+    Videos, Shorts and Live tabs by continuation (about 30, Shorts 48), Floatplane and Sauce+
+    posts by `fetchAfter` offset (20). On demand only, one page per press, never by a refresh
+    or the server: background archive fetching for every subscription is what gets an IP
+    bot-blocked.
+    - Pages go into `feed_item` as `archived` rows (schema 5): shown on that channel page and in
+      library search only, never in the main feeds or the Shorts player, never pruned or
+      dropped by a refresh or a server pull (`merge` keeps the flag).
+    - `ChannelArchive` keeps the next-page cursor for the life of the process; after a restart
+      the next press walks past pages whose items are all cached (25 pages per press at most).
+    - YouTube's Shorts tab dates nothing: those items are `dateUnknown` (schema 5), placed a
+      minute apart below the oldest cached Short in page order, and their tiles show no date.
+    - `make smoke` pages three times back on the Videos and Shorts tabs.
+
 ## Invariants
 
 - **No algorithmic content.** Feeds hold only subscribed channels; ordering is publish date

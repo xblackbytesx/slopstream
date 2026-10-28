@@ -55,6 +55,13 @@ data class FeedItemEntity(
     val durationSec: Long?,
     val dateApproximate: Boolean,
     val fetchedAt: Long,
+    /**
+     * Loaded from a channel page's "Load older" (schema 5, decision 23): shown on that channel
+     * page only, never in the main feeds, and never pruned or dropped by a refresh.
+     */
+    @ColumnInfo(defaultValue = "0") val archived: Boolean = false,
+    /** No date from the service (schema 5): [publishedAt] only orders the list, tiles show none. */
+    @ColumnInfo(defaultValue = "0") val dateUnknown: Boolean = false,
 )
 
 @Entity(tableName = "watch_state", primaryKeys = ["source", "remoteId"])
@@ -118,6 +125,7 @@ data class VideoRow(
     val thumbnailUrl: String?,
     val durationSec: Long?,
     val dateApproximate: Boolean,
+    val dateUnknown: Boolean,
     @ColumnInfo(name = "positionMs") val positionMs: Long?,
     @ColumnInfo(name = "watchDurationMs") val watchDurationMs: Long?,
     @ColumnInfo(name = "watched") val watched: Boolean?,

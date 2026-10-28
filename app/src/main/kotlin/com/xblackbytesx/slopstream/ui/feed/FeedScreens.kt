@@ -1,9 +1,13 @@
 package com.xblackbytesx.slopstream.ui.feed
 
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
@@ -19,15 +23,18 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -36,6 +43,7 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.xblackbytesx.slopstream.core.SourceKey
+import com.xblackbytesx.slopstream.data.ArchiveState
 import com.xblackbytesx.slopstream.data.RefreshState
 import com.xblackbytesx.slopstream.data.db.VideoRow
 import com.xblackbytesx.slopstream.ui.comments.CommentsGate
@@ -170,6 +178,7 @@ fun ChannelScreen(nav: ListNav, onUnsubscribed: () -> Unit, vm: ChannelViewModel
     val tab by vm.selectedTab.collectAsStateWithLifecycle()
     val favorite by vm.favorite.collectAsStateWithLifecycle()
     val name by vm.name.collectAsStateWithLifecycle()
+    val archive by vm.archiveState.collectAsStateWithLifecycle()
     VideoListScreen(
         title = name,
         items = items,
@@ -202,8 +211,45 @@ fun ChannelScreen(nav: ListNav, onUnsubscribed: () -> Unit, vm: ChannelViewModel
                 if (vm.canUnsubscribe) SecondaryButton("Unsubscribe", { vm.unsubscribe(onUnsubscribed) })
             }
         },
-        empty = { EmptyState("Nothing here", "This channel has no ${tab.label.lowercase()} in the cache yet.") },
+        footer = archive?.let { a -> { LoadOlder(a, vm::loadOlder) } },
+        empty = {
+            EmptyState(
+                "Nothing here",
+                if (archive != null) "None of this channel's ${tab.label.lowercase()} are cached yet. Load older ones below."
+                else "This channel has no ${tab.label.lowercase()} in the cache yet.",
+            )
+        },
     )
+}
+
+/**
+ * The end of a channel tab: loads the next page of older uploads (decision 23). One button in
+ * every state, so focus on TV stays put while it loads and after the last page.
+ */
+@Composable
+private fun LoadOlder(state: ArchiveState, onLoad: () -> Unit) {
+    // New tiles land above the button and push it down; on TV, where it holds focus, it comes
+    // back into view so the remote can go on (Up reaches the new tiles).
+    val view = remember { BringIntoViewRequester() }
+    val isTv = LocalIsTv.current
+    LaunchedEffect(state.loading) { if (isTv && !state.loading) runCatching { view.bringIntoView() } }
+    Column(
+        Modifier.fillMaxWidth().padding(top = 8.dp).bringIntoViewRequester(view),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        state.error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Palette.TextDim) }
+        SecondaryButton(
+            when {
+                state.loading -> "Loading older videos…"
+                state.done -> "That's everything on this channel"
+                state.error != null -> "Try again"
+                else -> "Load older videos"
+            },
+            { if (!state.loading && !state.done) onLoad() },
+            icon = if (state.done) null else Icons.Filled.History,
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -221,6 +267,8 @@ private fun VideoListScreen(
     /** What the list shows (a tab): each gets its own scroll position. */
     listKey: Any = Unit,
     subHeader: (@Composable () -> Unit)? = null,
+    /** Under the last tile; also shown when the list is empty. */
+    footer: (@Composable () -> Unit)? = null,
     empty: @Composable () -> Unit,
 ) {
     val service by vm.service.collectAsStateWithLifecycle()
@@ -262,7 +310,14 @@ private fun VideoListScreen(
         val loadedEmpty = items.itemCount == 0 && items.loadState.refresh is LoadState.NotLoading
         val body: @Composable () -> Unit = {
             if (loadedEmpty) {
-                empty()
+                if (footer == null) {
+                    empty()
+                } else {
+                    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.weight(1f)) { empty() }
+                        Box(Modifier.padding(bottom = 32.dp)) { footer() }
+                    }
+                }
             } else {
                 VideoGrid(
                     items,
@@ -271,6 +326,7 @@ private fun VideoListScreen(
                     showChannel = showChannel,
                     state = gridState,
                     restoreFocusKey = lastActivated.takeIf { isTv },
+                    footer = footer,
                 )
             }
         }

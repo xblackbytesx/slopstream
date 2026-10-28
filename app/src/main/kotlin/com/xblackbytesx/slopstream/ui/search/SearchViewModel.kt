@@ -185,6 +185,7 @@ class SearchViewModel @Inject constructor(
         thumbnailUrl = thumbnailUrl,
         durationSec = durationSec,
         dateApproximate = dateApproximate,
+        dateUnknown = dateUnknown,
         positionMs = null,
         watchDurationMs = null,
         watched = null,

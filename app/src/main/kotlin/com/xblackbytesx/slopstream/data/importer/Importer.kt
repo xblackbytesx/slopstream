@@ -28,7 +28,7 @@ class Importer @Inject constructor(@ApplicationContext private val context: Cont
     }
 
     fun fromText(text: String): SubscriptionImport.ImportResult {
-        val trimmed = text.trimStart('﻿', ' ', '\n', '\r', '\t')
+        val trimmed = text.trimStart('\uFEFF', ' ', '\n', '\r', '\t')
         if (trimmed.startsWith("{")) return SubscriptionImport.fromNewPipeJson(trimmed)
         return runCatching { SubscriptionImport.fromTakeoutCsv(trimmed) }.getOrElse { urlList(trimmed) }
     }

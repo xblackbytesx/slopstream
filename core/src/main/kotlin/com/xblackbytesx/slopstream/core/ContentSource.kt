@@ -50,6 +50,14 @@ interface ContentSource {
      * ([SourceCapabilities.enrichesDurations]): what the feed itself does not carry.
      */
     suspend fun durations(channelId: String): Map<String, Long> = emptyMap()
+
+    /**
+     * A channel's uploads of one [kind], a page at a time from the newest back to the first
+     * ([SourceCapabilities.archiveKinds]); the first page when [from] is null. Only run when the
+     * user asks for older videos on a channel page, never by a refresh.
+     */
+    suspend fun channelPage(channelId: String, kind: VideoKind, from: ArchivePage.Cursor? = null): ArchivePage =
+        throw SourceUnavailableException("This service has no older videos here")
 }
 
 open class SourceException(message: String, cause: Throwable? = null) : Exception(message, cause)

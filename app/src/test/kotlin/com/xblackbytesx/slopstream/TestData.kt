@@ -1,5 +1,6 @@
 package com.xblackbytesx.slopstream
 
+import com.xblackbytesx.slopstream.core.ArchivePage
 import com.xblackbytesx.slopstream.core.Channel
 import com.xblackbytesx.slopstream.core.ChannelFeed
 import com.xblackbytesx.slopstream.core.ContentSource
@@ -21,7 +22,10 @@ open class FakeSource(
     var feeds: MutableMap<String, () -> ChannelFeed> = mutableMapOf(),
     override val key: SourceKey = SourceKey.YOUTUBE,
     override val capabilities: SourceCapabilities =
-        SourceCapabilities(needsLogin = false, hasShorts = true, hasLive = true, canSearchChannels = true, enrichesDurations = true),
+        SourceCapabilities(
+            needsLogin = false, hasShorts = true, hasLive = true, canSearchChannels = true, enrichesDurations = true,
+            archiveKinds = setOf(VideoKind.VIDEO, VideoKind.SHORT, VideoKind.LIVE),
+        ),
 ) : ContentSource {
     val fetched = mutableListOf<String>()
 
@@ -32,6 +36,21 @@ open class FakeSource(
     val durationsOf = mutableMapOf<String, Map<String, Long>>()
 
     override suspend fun durations(channelId: String): Map<String, Long> = durationsOf[channelId].orEmpty()
+
+    /** A channel's pages for [channelPage], newest first; the cursor is the next page's index. */
+    val pagesOf = mutableMapOf<String, List<List<VideoItem>>>()
+    val pageCalls = mutableListOf<Int>()
+
+    /** Thrown by [channelPage] instead of answering, when set. */
+    var pageError: Exception? = null
+
+    override suspend fun channelPage(channelId: String, kind: VideoKind, from: ArchivePage.Cursor?): ArchivePage {
+        pageError?.let { throw it }
+        val index = from?.handle as? Int ?: 0
+        pageCalls += index
+        val pages = pagesOf[channelId].orEmpty()
+        return ArchivePage(pages.getOrElse(index) { emptyList() }, if (index + 1 < pages.size) ArchivePage.Cursor(index + 1) else null)
+    }
 
     override suspend fun accountSubscriptions(): List<Channel> = account()
 
@@ -125,6 +144,7 @@ private fun row(
     thumbnailUrl = "test://$id",
     durationSec = durationSec,
     dateApproximate = false,
+    dateUnknown = false,
     positionMs = positionMs ?: if (watched) 1_000_000 else null,
     watchDurationMs = watchMs ?: if (watched) 1_000_000 else null,
     watched = watched,

@@ -57,6 +57,8 @@ fun VideoGrid(
     state: LazyGridState = rememberLazyGridState(),
     restoreFocusKey: String? = null,
     header: (@Composable () -> Unit)? = null,
+    /** Full width under the last tile (a channel page's "Load older"). */
+    footer: (@Composable () -> Unit)? = null,
 ) {
     val dims = LocalDims.current
     val restore = remember { FocusRequester() }
@@ -107,5 +109,6 @@ fun VideoGrid(
                 )
             }
         }
+        if (footer != null) item(key = "footer", span = { GridItemSpan(maxLineSpan) }) { footer() }
     }
 }

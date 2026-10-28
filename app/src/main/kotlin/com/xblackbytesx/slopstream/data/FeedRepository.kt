@@ -214,23 +214,25 @@ class FeedRepository @Inject constructor(
         if (durationSec > 0) feedDao.setDuration(source, remoteId, durationSec)
     }
 
-    private fun VideoItem.toEntity(fetchedAt: Long) = FeedItemEntity(
-        source = source.id,
-        remoteId = remoteId,
-        channelId = channelId,
-        channelName = channelName,
-        title = title,
-        publishedAt = publishedAt.toEpochMilli(),
-        kind = kind.name,
-        thumbnailUrl = thumbnailUrl,
-        durationSec = durationSec,
-        dateApproximate = dateApproximate,
-        fetchedAt = fetchedAt,
-    )
-
     companion object {
         /** Concurrent channel fetches: quick on 300 subscriptions, gentle enough for YouTube. */
         const val PARALLEL = 6
         const val KEEP_PER_KIND = 200
     }
 }
+
+internal fun VideoItem.toEntity(fetchedAt: Long, archived: Boolean = false) = FeedItemEntity(
+    source = source.id,
+    remoteId = remoteId,
+    channelId = channelId,
+    channelName = channelName,
+    title = title,
+    publishedAt = publishedAt.toEpochMilli(),
+    kind = kind.name,
+    thumbnailUrl = thumbnailUrl,
+    durationSec = durationSec,
+    dateApproximate = dateApproximate,
+    fetchedAt = fetchedAt,
+    archived = archived,
+    dateUnknown = dateUnknown,
+)

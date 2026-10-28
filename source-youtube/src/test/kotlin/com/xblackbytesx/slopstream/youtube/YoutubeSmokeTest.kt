@@ -10,6 +10,7 @@ import com.xblackbytesx.slopstream.core.playback.VideoCodec
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -90,6 +91,27 @@ class YoutubeSmokeTest {
         println("durations: ${durations.size} from the tabs; $covered of ${rss.size} RSS videos covered; e.g. ${durations.entries.take(3)}")
         assertTrue("no durations", durations.isNotEmpty())
         assertTrue("the newest RSS video has none", rss.firstOrNull()?.let { it in durations } ?: true)
+    }
+
+    /** "Load older" (decision 23): the Videos and Shorts tabs page back past RSS's window. */
+    @Test
+    fun channelPagesGoFurtherBack() = runTest(timeout = 3.minutes) {
+        for (kind in listOf(VideoKind.VIDEO, VideoKind.SHORT)) {
+            val first = source.channelPage(channel, kind)
+            val second = source.channelPage(channel, kind, first.next ?: error("$kind: no second page"))
+            val third = source.channelPage(channel, kind, second.next ?: error("$kind: no third page"))
+            println("$kind pages: ${first.items.size} + ${second.items.size} + ${third.items.size}; oldest ${third.items.lastOrNull()?.publishedAt} ${third.items.lastOrNull()?.title}")
+            assertTrue("$kind: empty pages", listOf(first, second, third).all { it.items.isNotEmpty() })
+            val ids = (first.items + second.items + third.items).map { it.remoteId }
+            assertEquals("$kind: pages overlap", ids.size, ids.toSet().size)
+            assertTrue("$kind: wrong kind", (second.items + third.items).all { it.kind == kind || it.kind == VideoKind.UPCOMING })
+            // The Shorts tab dates nothing; the app orders those below the cache (ChannelArchive).
+            if (kind == VideoKind.SHORT) {
+                assertTrue("$kind: dated after all?", third.items.all { it.dateUnknown })
+            } else {
+                assertTrue("$kind: not older", third.items.first().publishedAt <= first.items.first().publishedAt)
+            }
+        }
     }
 
     @Test

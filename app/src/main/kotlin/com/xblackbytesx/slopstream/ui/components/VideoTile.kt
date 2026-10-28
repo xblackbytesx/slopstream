@@ -120,10 +120,10 @@ fun VideoTile(
         )
         Spacer(Modifier.height(2.dp))
         Text(
-            buildString {
-                if (showChannel) append(row.channelName).append(" · ")
-                append(relativeTime(row.publishedAt, approximate = row.dateApproximate))
-            },
+            listOfNotNull(
+                row.channelName.takeIf { showChannel },
+                relativeTime(row.publishedAt, approximate = row.dateApproximate).takeUnless { row.dateUnknown },
+            ).joinToString(" · "),
             style = MaterialTheme.typography.bodySmall,
             color = Palette.TextDim,
             maxLines = 1,

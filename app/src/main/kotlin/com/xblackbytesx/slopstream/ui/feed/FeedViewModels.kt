@@ -10,6 +10,8 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.xblackbytesx.slopstream.core.SourceKey
 import com.xblackbytesx.slopstream.core.VideoKind
+import com.xblackbytesx.slopstream.data.ArchiveState
+import com.xblackbytesx.slopstream.data.ChannelArchive
 import com.xblackbytesx.slopstream.data.FeedRepository
 import com.xblackbytesx.slopstream.data.RefreshState
 import com.xblackbytesx.slopstream.data.ServiceState
@@ -29,6 +31,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -124,6 +127,7 @@ class ChannelViewModel @Inject constructor(
     private val subscriptions: SubscriptionRepository,
     services: Services,
     sources: Sources,
+    private val archive: ChannelArchive,
 ) : VideoListViewModel(feed, watch, playback, services) {
     val route: ChannelRoute = savedState.toRoute()
     private val capabilities = sources[route.source].capabilities
@@ -161,6 +165,15 @@ class ChannelViewModel @Inject constructor(
 
     fun select(t: ChannelTab) { tab.value = t }
 
+    private fun archiveKey(t: ChannelTab) = ChannelArchive.Key(route.source, route.channelId, t.archiveKind)
+
+    /** "Load older" on this tab; null where the service cannot go further back (decision 23). */
+    val archiveState: StateFlow<ArchiveState?> = tab
+        .flatMapLatest { t -> if (archive.offers(route.source, t.archiveKind)) archive.state(archiveKey(t)) else flowOf(null) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun loadOlder() { viewModelScope.launch { archive.loadOlder(archiveKey(tab.value)) } }
+
     fun setFavorite(on: Boolean) { viewModelScope.launch { subscriptions.setFavorite(route.source, route.channelId, on) } }
 
     fun unsubscribe(onDone: () -> Unit) {
@@ -175,4 +188,8 @@ enum class ChannelTab(val label: String, val kinds: List<VideoKind>) {
     VIDEOS("Videos", listOf(VideoKind.VIDEO)),
     SHORTS("Shorts", listOf(VideoKind.SHORT)),
     LIVE("Live", listOf(VideoKind.LIVE, VideoKind.UPCOMING)),
+    ;
+
+    /** What "Load older" pages through on this tab. */
+    val archiveKind: VideoKind get() = kinds.first()
 }

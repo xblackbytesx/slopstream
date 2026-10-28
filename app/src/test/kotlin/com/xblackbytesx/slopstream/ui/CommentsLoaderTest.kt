@@ -6,6 +6,7 @@ import com.xblackbytesx.slopstream.core.CommentsPage
 import com.xblackbytesx.slopstream.core.SourceException
 import com.xblackbytesx.slopstream.ui.comments.CommentsLoader
 import com.xblackbytesx.slopstream.ui.comments.compact
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -40,6 +41,7 @@ class CommentsFake : FakeSource() {
     }
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class CommentsLoaderTest {
     @Test
     fun pagesLoadOnlyWhenAsked() = runTest(UnconfinedTestDispatcher()) {

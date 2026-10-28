@@ -1,5 +1,6 @@
 package com.xblackbytesx.slopstream.floatplane
 
+import com.xblackbytesx.slopstream.core.ArchivePage
 import com.xblackbytesx.slopstream.core.Channel
 import com.xblackbytesx.slopstream.core.ChannelFeed
 import com.xblackbytesx.slopstream.core.ContentSource
@@ -43,6 +44,7 @@ class FloatplaneSource(
         // delivery/info is rate limited: resolve once per play, never on focus.
         prefetchPlayback = false,
         catalog = site.globalSubscriptions,
+        archiveKinds = setOf(VideoKind.VIDEO),
     )
 
     /** Who is signed in; also the check that a session works. */
@@ -77,18 +79,38 @@ class FloatplaneSource(
     override suspend fun fetchChannelFeed(channelId: String): ChannelFeed {
         val creator = api.creator(channelId)
         val posts = api.posts(channelId)
-        // Only look sub-channel names up when a post names its channel by id alone.
-        val titles = if (posts.any { it.channel !is JsonObject && FloatplaneMapping.channelIdOf(it) != null }) {
-            api.channels(listOf(channelId)).associate { it.id to it.title }
-        } else {
-            emptyMap()
-        }
         val live = liveNow(creator)
-        val items = listOfNotNull(live.getOrNull()) + FloatplaneMapping.feedItems(creator, posts, titles, site)
+        val items = listOfNotNull(live.getOrNull()) + FloatplaneMapping.feedItems(creator, posts, subChannelTitles(channelId, posts), site)
         // Only an answer either way says whether an earlier live item has ended.
         val complete = if (live.isSuccess) setOf(VideoKind.LIVE) else emptySet()
         return ChannelFeed(key, creator.id, creator.title, items, completeKinds = complete)
     }
+
+    /**
+     * The creator's video posts [ARCHIVE_PAGE] at a time, by offset (`fetchAfter`). A page can
+     * map to fewer items: posts the plan does not include are left out, as in the feed. Past
+     * livestreams are posted as videos, so there is no live archive.
+     */
+    override suspend fun channelPage(channelId: String, kind: VideoKind, from: ArchivePage.Cursor?): ArchivePage {
+        if (kind != VideoKind.VIDEO) return ArchivePage(emptyList(), null)
+        val at = from?.handle as? PostsCursor
+        val creator = at?.creator ?: api.creator(channelId)
+        val offset = at?.offset ?: 0
+        val posts = api.posts(channelId, limit = ARCHIVE_PAGE, fetchAfter = offset)
+        val items = FloatplaneMapping.feedItems(creator, posts, subChannelTitles(channelId, posts), site)
+        val next = if (posts.size < ARCHIVE_PAGE) null else ArchivePage.Cursor(PostsCursor(creator, offset + posts.size))
+        return ArchivePage(items, next)
+    }
+
+    private class PostsCursor(val creator: CreatorDto, val offset: Int)
+
+    /** Only looks sub-channel names up when a post names its channel by id alone. */
+    private suspend fun subChannelTitles(creatorId: String, posts: List<PostDto>): Map<String, String> =
+        if (posts.any { it.channel !is JsonObject && FloatplaneMapping.channelIdOf(it) != null }) {
+            api.channels(listOf(creatorId)).associate { it.id to it.title }
+        } else {
+            emptyMap()
+        }
 
     /**
      * The creator's stream as a feed item when it is on air, null when off. The delivery
@@ -147,6 +169,9 @@ class FloatplaneSource(
     private companion object {
         /** Where every playlist on the platform points its AES key, Sauce+ included. */
         val FLOATPLANE_KEY_HOST = FloatplaneSite.FLOATPLANE.host
+
+        /** Posts per older-videos page; the most the posts list hands out at once. */
+        const val ARCHIVE_PAGE = 20
     }
 
     /** The creator's livestream, when it is on. */

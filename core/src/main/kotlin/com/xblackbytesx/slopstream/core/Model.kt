@@ -51,6 +51,11 @@ data class VideoItem(
     val durationSec: Long? = null,
     /** True when the date came from a relative label ("3 days ago") instead of a timestamp. */
     val dateApproximate: Boolean = false,
+    /**
+     * The service gave no date at all (YouTube's Shorts tab): [publishedAt] only keeps the list
+     * in order and is never shown.
+     */
+    val dateUnknown: Boolean = false,
 )
 
 /** One channel's recent uploads, already split by kind. */
@@ -90,6 +95,8 @@ data class SourceCapabilities(
     val hasComments: Boolean = false,
     /** The feed lacks durations and [ContentSource.durations] can fill them in (YouTube's RSS). */
     val enrichesDurations: Boolean = false,
+    /** Kinds whose older uploads a channel page can load, page by page ([ContentSource.channelPage]). */
+    val archiveKinds: Set<VideoKind> = emptySet(),
 )
 
 /**
@@ -120,6 +127,16 @@ data class CommentsPage(
     val disabled: Boolean = false,
 ) {
     /** Where a page starts. Opaque: only the source that made it reads it. */
+    class Cursor(val handle: Any)
+}
+
+/** One page of a channel's uploads of one kind, newest first ([ContentSource.channelPage]). */
+data class ArchivePage(
+    val items: List<VideoItem>,
+    /** Where the next, older page starts; null at the channel's first upload. */
+    val next: Cursor?,
+) {
+    /** Opaque: only the source that made it reads it. */
     class Cursor(val handle: Any)
 }
 

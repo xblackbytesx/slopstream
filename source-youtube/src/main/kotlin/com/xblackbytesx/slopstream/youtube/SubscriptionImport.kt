@@ -56,7 +56,7 @@ object SubscriptionImport {
      */
     fun fromTakeoutCsv(text: String): ImportResult {
         val rows = text.lineSequence()
-            .map { it.trim().removePrefix("﻿") }
+            .map { it.trim().removePrefix("\uFEFF") }
             .filter { it.isNotEmpty() }
             .map(::splitCsvLine)
             .filter { cols -> cols.size >= 2 && (YoutubeIds.isChannelId(cols[0]) || YoutubeIds.channelIdFrom(cols[1]) != null) }
