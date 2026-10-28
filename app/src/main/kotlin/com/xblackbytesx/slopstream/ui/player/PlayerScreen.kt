@@ -35,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
@@ -98,18 +99,33 @@ import com.xblackbytesx.slopstream.playback.PlayerSession
 import com.xblackbytesx.slopstream.ui.comments.CommentsList
 import com.xblackbytesx.slopstream.ui.comments.CommentsLoader
 import com.xblackbytesx.slopstream.ui.components.ListRow
+import com.xblackbytesx.slopstream.ui.components.MenuItem
 import com.xblackbytesx.slopstream.ui.components.PrimaryButton
 import com.xblackbytesx.slopstream.ui.components.SecondaryButton
 import com.xblackbytesx.slopstream.ui.components.formatPosition
+import com.xblackbytesx.slopstream.ui.downloads.DownloadActions
+import com.xblackbytesx.slopstream.ui.downloads.DownloadMenu
+import com.xblackbytesx.slopstream.ui.downloads.DownloadSheetHost
 import com.xblackbytesx.slopstream.ui.theme.LocalIsTv
 import com.xblackbytesx.slopstream.ui.theme.Palette
 import kotlinx.coroutines.delay
 
 @Composable
-fun PlayerScreen(onBack: () -> Unit, enterPip: () -> Unit, vm: PlayerViewModel = hiltViewModel()) {
+fun PlayerScreen(
+    onBack: () -> Unit,
+    enterPip: () -> Unit,
+    vm: PlayerViewModel = hiltViewModel(),
+    downloads: DownloadActions = hiltViewModel(),
+) {
     val state by vm.engine.state.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    // Read so the menu follows the download as it starts, finishes or goes.
+    val downloadStates by downloads.states.collectAsStateWithLifecycle()
     val title = (state.plan?.title ?: vm.route.title).ifBlank { "Loading…" }
+    val live = (state.plan as? PlaybackPlan.Manifest)?.live == true
+    val download = remember(downloadStates, live, title) {
+        if (live) null else downloads.menu(vm.route.source, vm.route.videoId, title)
+    }
     PlayerChrome(
         engine = vm.engine,
         state = state,
@@ -119,7 +135,9 @@ fun PlayerScreen(onBack: () -> Unit, enterPip: () -> Unit, vm: PlayerViewModel =
         onBack = onBack,
         enterPip = enterPip,
         comments = vm.comments.takeIf { settings?.showComments == true },
+        download = download,
     )
+    DownloadSheetHost(downloads)
 }
 
 /**
@@ -142,11 +160,14 @@ fun PlayerChrome(
     portraitShorts: Boolean = false,
     onPrevious: (() -> Unit)? = null,
     onNext: (() -> Unit)? = null,
-    /** Non-null: a Comments button, and the side panel it opens. */
+    /** Non-null: Comments under More, and the side panel it opens. */
     comments: CommentsLoader? = null,
+    /** Non-null: Download (or cancel, remove) under More. */
+    download: DownloadMenu? = null,
 ) {
     val isTv = LocalIsTv.current
     var showComments by remember { mutableStateOf(false) }
+    var showMore by remember { mutableStateOf(false) }
     val player = engine.player
     val inPip by PlayerSession.inPip.collectAsStateWithLifecycle()
     var visible by remember { mutableStateOf(true) }
@@ -241,7 +262,7 @@ fun PlayerChrome(
                     onTogglePlay = ::togglePlay,
                     onSeek = ::seekBy,
                     onQuality = { showQuality = true },
-                    onComments = comments?.let { c -> { c.start(); showComments = true } },
+                    onMore = if (comments != null || download != null) ({ showMore = true }) else null,
                     onPip = if (!isTv) enterPip else null,
                     onInteract = ::poke,
                     compact = portraitShorts,
@@ -275,6 +296,14 @@ fun PlayerChrome(
     BackHandler(enabled = showComments) {
         showComments = false
         runCatching { rootFocus.requestFocus() }
+    }
+
+    if (showMore) {
+        MoreDialog(
+            onComments = comments?.let { c -> { c.start(); showComments = true } },
+            download = download,
+            onDismiss = { showMore = false },
+        )
     }
 
     if (showQuality) {
@@ -333,7 +362,7 @@ private fun Controls(
     onTogglePlay: () -> Unit,
     onSeek: (Long) -> Unit,
     onQuality: () -> Unit,
-    onComments: (() -> Unit)?,
+    onMore: (() -> Unit)?,
     onPip: (() -> Unit)?,
     onInteract: () -> Unit,
     compact: Boolean,
@@ -370,6 +399,7 @@ private fun Controls(
                         subtitle.takeIf { it.isNotBlank() },
                         state.plan?.chosenQuality?.label,
                         if (live) "LIVE" else null,
+                        if (state.plan is PlaybackPlan.Local) "Downloaded" else null,
                     ).joinToString(" · ")
                     if (meta.isNotEmpty()) Text(meta, style = MaterialTheme.typography.bodyMedium, color = Palette.TextDim)
                 }
@@ -406,10 +436,10 @@ private fun Controls(
                 )
                 if (!live && !compact) RoundButton(Icons.Filled.Forward10, "Forward 10 seconds", { onSeek(10_000) }, onInteract)
                 Spacer(Modifier.weight(1f))
-                onComments?.let { RoundButton(Icons.AutoMirrored.Filled.Comment, "Comments", it, onInteract) }
                 if (state.plan?.qualityOptions.orEmpty().size > 1) {
                     RoundButton(Icons.Filled.HighQuality, "Quality", onQuality, onInteract)
                 }
+                onMore?.let { RoundButton(Icons.Filled.MoreVert, "More", it, onInteract) }
                 onPip?.let { RoundButton(Icons.Filled.PictureInPictureAlt, "Picture in picture", it, onInteract) }
             }
         }
@@ -497,6 +527,26 @@ private fun SeekBar(position: Long, buffered: Long, duration: Long, onSeekTo: (L
                 drawCircle(Palette.Accent, radius = if (focused) 9.dp.toPx() else 6.dp.toPx(), center = Offset(px, size.height / 2))
             },
     )
+}
+
+/** What the player keeps out of its control row: comments and downloading. */
+@Composable
+private fun MoreDialog(onComments: (() -> Unit)?, download: DownloadMenu?, onDismiss: () -> Unit) {
+    val first = remember { FocusRequester() }
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.width(340.dp).background(Palette.Surface, RoundedCornerShape(20.dp)).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            onComments?.let { open ->
+                MenuItem(Icons.AutoMirrored.Filled.Comment, "Comments", Modifier.focusRequester(first)) { onDismiss(); open() }
+            }
+            download?.let { d ->
+                MenuItem(d.icon, d.label, if (onComments == null) Modifier.focusRequester(first) else Modifier) { onDismiss(); d.onClick() }
+            }
+        }
+    }
+    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
 }
 
 @Composable

@@ -1,6 +1,9 @@
 package com.xblackbytesx.slopstream.youtube
 
+import com.xblackbytesx.slopstream.core.DownloadOffer
+import com.xblackbytesx.slopstream.core.DownloadStream
 import com.xblackbytesx.slopstream.core.SourceUnavailableException
+import com.xblackbytesx.slopstream.core.VideoKind
 import com.xblackbytesx.slopstream.core.playback.AudioCandidate
 import com.xblackbytesx.slopstream.core.playback.AudioTrackRole
 import com.xblackbytesx.slopstream.core.playback.DeviceProfile
@@ -72,6 +75,59 @@ internal class StreamPlanner {
             video = track(info, stream),
             audio = audio?.let { track(info, it) } ?: plan.audio,
             chosen = candidate,
+        )
+    }
+
+    /**
+     * Whole-file streams only (progressive, with a known layout): the ones a byte-range download
+     * can fetch. Every resolution the device decodes, ignoring the quality cap: a download is
+     * chosen per video, and the sheet shows each one's size.
+     */
+    fun downloadOffer(info: StreamInfo, profile: DeviceProfile, prefs: PlaybackPrefs): DownloadOffer {
+        if (info.streamType == StreamType.LIVE_STREAM || info.streamType == StreamType.AUDIO_LIVE_STREAM) {
+            throw SourceUnavailableException("A livestream can't be downloaded")
+        }
+        val videos = downloadableVideos(info)
+        val options = StreamSelector.playable(videos.keys.toList(), profile, prefs)
+        val audios = downloadableAudios(info)
+        val audio = StreamSelector.selectAudio(audios.keys.toList())?.let(audios::getValue)
+        if (options.isEmpty() || audio == null) throw SourceUnavailableException("No downloadable stream this device can play")
+        return DownloadOffer(
+            videoId = info.id,
+            title = info.name,
+            channelId = YoutubeIds.channelIdFrom(info.uploaderUrl.orEmpty()).orEmpty(),
+            channelName = info.uploaderName.orEmpty(),
+            durationSec = info.duration,
+            thumbnailUrl = YoutubeIds.thumbnailFor(info.id, VideoKind.VIDEO),
+            videos = options.map { c -> download(info, videos.getValue(c), c) },
+            audio = download(info, audio, null),
+        )
+    }
+
+    /** One stream of [downloadOffer] with a fresh URL: video by itag, audio by itag and track. */
+    fun downloadStream(info: StreamInfo, streamId: String): DownloadStream {
+        downloadableVideos(info).entries.firstOrNull { it.key.id == streamId }?.let { (c, s) -> return download(info, s, c) }
+        downloadableAudios(info).entries.firstOrNull { it.key.id == streamId }?.let { (_, s) -> return download(info, s, null) }
+        throw SourceUnavailableException("YouTube no longer offers this quality ($streamId)")
+    }
+
+    private fun downloadableVideos(info: StreamInfo) =
+        adaptiveVideos(info).filterValues { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+
+    private fun downloadableAudios(info: StreamInfo) =
+        adaptiveAudios(info).filterValues { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+
+    private fun download(info: StreamInfo, stream: Stream, video: VideoCandidate?): DownloadStream {
+        val itag = requireNotNull(stream.itagItem)
+        val exact = itag.contentLength.takeIf { it > 0 }
+        val bitrate = itag.averageBitrate.takeIf { it > 0 } ?: itag.bitrate.takeIf { it > 0 }
+        return DownloadStream(
+            id = video?.id ?: (stream as AudioStream).toCandidate().id,
+            url = stream.content,
+            extension = stream.format?.suffix ?: if (video != null) "mp4" else "m4a",
+            sizeBytes = exact ?: bitrate?.let { it.toLong() * info.duration / 8 }?.takeIf { it > 0 },
+            sizeExact = exact != null,
+            video = video,
         )
     }
 

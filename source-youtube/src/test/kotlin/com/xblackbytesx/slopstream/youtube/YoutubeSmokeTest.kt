@@ -207,4 +207,46 @@ class YoutubeSmokeTest {
             assertTrue("$name stream returned HTTP $code", code in 200..299 && bytes == 65_536)
         }
     }
+
+    /**
+     * Downloads (decision 24): the offer lists whole-file streams with exact sizes, a 10 MB
+     * range comes back whole the way the downloader asks for it, and so does the file's last
+     * range; a stream looked up again by its id has a working URL.
+     */
+    @Test
+    fun downloadOfferServesWholeFilesInRanges() = runTest(timeout = 3.minutes) {
+        val ladder = listOf(480, 720, 1080, 1440, 2160).associateWith { 60 }
+        val shield = DeviceProfile(listOf(DecoderCaps(VideoCodec.VP9, true, ladder), DecoderCaps(VideoCodec.H264, true, ladder)), false, 2160, null, true)
+        val offer = source.downloadOffer("LXb3EKWsInQ", shield, PlaybackPrefs(QualityCap.P1080))
+        println("offer '${offer.title}' by ${offer.channelName} (${offer.channelId}) ${offer.durationSec}s")
+        offer.videos.forEach { println("  ${it.video?.label} ${it.extension} ${it.sizeBytes} exact=${it.sizeExact}") }
+        println("  audio ${offer.audio.id} ${offer.audio.extension} ${offer.audio.sizeBytes} exact=${offer.audio.sizeExact}")
+        // The cap is for streaming: a download offers the best the device decodes.
+        assertTrue(offer.videos.first().video!!.lines >= 2160)
+        assertTrue(offer.channelId.startsWith("UC"))
+
+        fun fetch(url: String, position: Long, length: Long): Pair<Int, Int> {
+            val shaped = StreamRequests.shape(url, position, length, position / length)
+            val req = okhttp3.Request.Builder().url(shaped.url)
+                .apply { shaped.headers.forEach { (k, v) -> header(k, v) } }
+                .post(shaped.body.toRequestBody()).build()
+            return client.newCall(req).execute().use { it.code to it.body.bytes().size }
+        }
+        val video = offer.videos.first()
+        val size = video.sizeBytes!!
+        val started = System.nanoTime()
+        val (code, got) = fetch(video.url, 0, 10L * 1024 * 1024)
+        val seconds = (System.nanoTime() - started) / 1e9
+        println("  ${video.video?.label}: first 10 MB HTTP $code, $got bytes in ${"%.1f".format(seconds)} s")
+        assertTrue(code in 200..299 && got.toLong() == minOf(size, 10L * 1024 * 1024))
+        val (endCode, endGot) = fetch(video.url, size - 65_536, 65_536)
+        println("  last 64 KB: HTTP $endCode, $endGot bytes")
+        assertTrue(endCode in 200..299 && endGot == 65_536)
+
+        val again = source.downloadStream("LXb3EKWsInQ", offer.audio.id)
+        assertEquals(offer.audio.sizeBytes, again.sizeBytes)
+        val (audioCode, audioGot) = fetch(again.url, 0, 65_536)
+        println("  audio by id again: HTTP $audioCode, $audioGot bytes")
+        assertTrue(audioCode in 200..299 && audioGot == 65_536)
+    }
 }

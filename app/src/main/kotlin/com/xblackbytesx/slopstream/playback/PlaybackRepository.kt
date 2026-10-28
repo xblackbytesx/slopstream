@@ -5,6 +5,7 @@ import com.xblackbytesx.slopstream.core.playback.PlaybackPlan
 import com.xblackbytesx.slopstream.data.Clock
 import com.xblackbytesx.slopstream.data.Settings
 import com.xblackbytesx.slopstream.data.Sources
+import com.xblackbytesx.slopstream.data.download.Downloads
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -16,12 +17,14 @@ import javax.inject.Singleton
 /**
  * Resolves playback plans, and pre-resolves the one under the cursor so pressing OK starts
  * instantly. Plans are kept for [TTL_MS]: stream URLs live for hours, but settings may change.
+ * A video downloaded on this device plays from its files and never asks the service.
  */
 @Singleton
 class PlaybackRepository @Inject constructor(
     private val sources: Sources,
     private val settings: Settings,
     private val clock: Clock,
+    private val downloads: Downloads,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val inFlight = LinkedHashMap<String, Pair<Long, Deferred<PlaybackPlan>>>()
@@ -33,10 +36,11 @@ class PlaybackRepository @Inject constructor(
      * Skipped for services that rate limit resolving (Floatplane).
      */
     fun prefetch(source: String, videoId: String) {
-        if (sources[source].capabilities.prefetchPlayback) start(source, videoId)
+        if (sources[source].capabilities.prefetchPlayback && !downloads.isDone(source, videoId)) start(source, videoId)
     }
 
     suspend fun resolve(source: String, videoId: String): PlaybackPlan {
+        downloads.localPlan(source, videoId)?.let { return it }
         val d = start(source, videoId)
         return try {
             d.await()

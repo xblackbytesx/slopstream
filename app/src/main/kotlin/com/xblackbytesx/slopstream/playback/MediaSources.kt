@@ -2,11 +2,13 @@ package com.xblackbytesx.slopstream.playback
 
 import android.net.Uri
 import androidx.annotation.OptIn
+import androidx.core.net.toUri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.FileDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.dash.DashMediaSource
@@ -21,13 +23,15 @@ import com.xblackbytesx.slopstream.core.playback.PlaybackPlan
 import com.xblackbytesx.slopstream.core.playback.Track
 import com.xblackbytesx.slopstream.youtube.StreamRequests
 import okhttp3.OkHttpClient
+import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * Turns a [PlaybackPlan] into Media3 sources. googlevideo.com requests are reshaped by
- * [StreamRequests] (range as a query parameter, POST body, client headers). A manifest plan's
+ * [StreamRequests] (range as a query parameter, POST body, client headers); a download plays
+ * from its files. A manifest plan's
  * [PlaybackPlan.Manifest.authHeaders] go to its [PlaybackPlan.Manifest.authHosts] only (the HLS
  * key server); every other URL (playlists, segments, thumbnails) passes through untouched.
  */
@@ -74,7 +78,17 @@ class MediaSources @Inject constructor(okHttp: OkHttpClient) {
         }
         is PlaybackPlan.Progressive -> ProgressiveMediaSource.Factory(youtube)
             .createMediaSource(MediaItem.fromUri(plan.url))
+        // A download: YouTube's whole-file streams carry their own seek index (sidx, Cues).
+        is PlaybackPlan.Local -> MergingMediaSource(
+            /* adjustPeriodTimeOffsets = */ true,
+            /* clipDurations = */ true,
+            local(plan.videoPath),
+            local(plan.audioPath),
+        )
     }
+
+    private fun local(path: String): MediaSource =
+        ProgressiveMediaSource.Factory(FileDataSource.Factory()).createMediaSource(MediaItem.fromUri(File(path).toUri()))
 
     private fun authorized(plan: PlaybackPlan.Manifest): DataSource.Factory {
         if (plan.authHeaders.isEmpty() && plan.hostRewrites.isEmpty()) return http

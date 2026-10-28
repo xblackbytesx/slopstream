@@ -55,6 +55,19 @@ sealed interface PlaybackPlan {
         }
     }
 
+    /**
+     * A download on this device (decision 24): the video file and the audio file, merged at
+     * playback like [Adaptive]. Paths are absolute; nothing here touches the network.
+     */
+    data class Local(
+        override val videoId: String,
+        override val title: String,
+        override val durationSec: Long,
+        val videoPath: String,
+        val audioPath: String,
+        val quality: VideoCandidate?,
+    ) : PlaybackPlan
+
     /** One muxed file: last resort when a video has no adaptive streams. */
     data class Progressive(
         override val videoId: String,
@@ -74,13 +87,14 @@ val PlaybackPlan.qualityOptions: List<VideoCandidate>
     get() = when (this) {
         is PlaybackPlan.Adaptive -> videoOptions
         is PlaybackPlan.Manifest -> variants.map { it.candidate }
-        is PlaybackPlan.Progressive -> emptyList()
+        is PlaybackPlan.Local, is PlaybackPlan.Progressive -> emptyList()
     }
 
 val PlaybackPlan.chosenQuality: VideoCandidate?
     get() = when (this) {
         is PlaybackPlan.Adaptive -> chosen
         is PlaybackPlan.Manifest -> chosen
+        is PlaybackPlan.Local -> quality
         is PlaybackPlan.Progressive -> null
     }
 

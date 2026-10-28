@@ -1,5 +1,6 @@
 package com.xblackbytesx.slopstream.core
 
+import com.xblackbytesx.slopstream.core.playback.VideoCandidate
 import java.time.Instant
 
 /**
@@ -97,6 +98,8 @@ data class SourceCapabilities(
     val enrichesDurations: Boolean = false,
     /** Kinds whose older uploads a channel page can load, page by page ([ContentSource.channelPage]). */
     val archiveKinds: Set<VideoKind> = emptySet(),
+    /** A video can be saved on the device for offline viewing ([ContentSource.downloadOffer]). */
+    val canDownload: Boolean = false,
 )
 
 /**
@@ -147,4 +150,33 @@ data class ImportedSubscription(
     val source: SourceKey,
     val channelId: String,
     val name: String,
+)
+
+/**
+ * What a video can be downloaded as (decision 24): its video streams the device can play, best
+ * first, and the audio that goes with them. Each is one whole file, fetched by byte range.
+ */
+data class DownloadOffer(
+    val videoId: String,
+    val title: String,
+    val channelId: String,
+    val channelName: String,
+    val durationSec: Long,
+    val thumbnailUrl: String?,
+    val videos: List<DownloadStream>,
+    val audio: DownloadStream,
+)
+
+/** One downloadable file. [url] expires within hours: [ContentSource.downloadStream] renews it. */
+data class DownloadStream(
+    /** Stable across URL renewals: what [ContentSource.downloadStream] looks up. */
+    val id: String,
+    val url: String,
+    /** File name extension: webm, mp4, m4a. */
+    val extension: String,
+    /** Exact when the service says, else estimated from the bitrate; null when neither is known. */
+    val sizeBytes: Long?,
+    val sizeExact: Boolean,
+    /** Null for audio. */
+    val video: VideoCandidate? = null,
 )

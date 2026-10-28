@@ -5,8 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +19,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.WatchLater
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +38,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -44,7 +49,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.xblackbytesx.slopstream.core.VideoKind
+import com.xblackbytesx.slopstream.data.db.DownloadState
 import com.xblackbytesx.slopstream.data.db.VideoRow
+import com.xblackbytesx.slopstream.data.download.Downloads
+import com.xblackbytesx.slopstream.ui.downloads.LocalDownloadStates
 import com.xblackbytesx.slopstream.ui.theme.LocalDims
 import com.xblackbytesx.slopstream.ui.theme.Palette
 import com.xblackbytesx.slopstream.youtube.YoutubeIds
@@ -102,12 +110,14 @@ fun VideoTile(
                     modifier = Modifier.align(Alignment.TopStart).padding(8.dp).size(20.dp),
                 )
             }
-            if (row.inWatchLater) {
-                Icon(
-                    Icons.Filled.WatchLater, contentDescription = "In Watch later", tint = Color.White,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(18.dp)
-                        .background(Palette.Scrim, RoundedCornerShape(50)).padding(2.dp),
-                )
+            val download = LocalDownloadStates.current[Downloads.key(row.source, row.remoteId)]
+            Row(Modifier.align(Alignment.TopEnd).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                when (download) {
+                    DownloadState.DONE -> CornerIcon(Icons.Filled.DownloadDone, "Downloaded", Palette.Accent)
+                    DownloadState.QUEUED, DownloadState.RUNNING -> CornerIcon(Icons.Filled.Download, "Downloading", Color.White)
+                    else -> Unit
+                }
+                if (row.inWatchLater) CornerIcon(Icons.Filled.WatchLater, "In Watch later", Color.White)
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -168,6 +178,11 @@ private fun androidx.compose.foundation.layout.BoxScope.Badges(row: VideoRow) {
                 .padding(horizontal = 5.dp, vertical = 2.dp),
         )
     }
+}
+
+@Composable
+private fun CornerIcon(icon: ImageVector, label: String, tint: Color) {
+    Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(18.dp).background(Palette.Scrim, RoundedCornerShape(50)).padding(2.dp))
 }
 
 @Composable

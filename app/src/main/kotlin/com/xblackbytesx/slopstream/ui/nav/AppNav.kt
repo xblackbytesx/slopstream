@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,6 +66,9 @@ import kotlinx.coroutines.flow.StateFlow
 import javax.inject.Inject
 import com.xblackbytesx.slopstream.data.db.VideoRow
 import com.xblackbytesx.slopstream.ui.comments.CommentsScreen
+import com.xblackbytesx.slopstream.ui.downloads.DownloadActions
+import com.xblackbytesx.slopstream.ui.downloads.DownloadsScreen
+import com.xblackbytesx.slopstream.ui.downloads.LocalDownloadStates
 import com.xblackbytesx.slopstream.ui.feed.ChannelScreen
 import com.xblackbytesx.slopstream.ui.feed.HistoryScreen
 import com.xblackbytesx.slopstream.ui.feed.ListNav
@@ -109,8 +113,15 @@ class ChromeViewModel @Inject constructor(services: Services) : ViewModel() {
 }
 
 @Composable
-fun AppNav(nav: NavHostController, startDestination: Any, enterPip: () -> Unit, chrome: ChromeViewModel = hiltViewModel()) {
+fun AppNav(
+    nav: NavHostController,
+    startDestination: Any,
+    enterPip: () -> Unit,
+    chrome: ChromeViewModel = hiltViewModel(),
+    downloads: DownloadActions = hiltViewModel(),
+) {
     val entry by nav.currentBackStackEntryAsState()
+    val downloadStates by downloads.states.collectAsStateWithLifecycle()
     val destination = entry?.destination
     val current = TOP_LEVEL.firstOrNull { t -> destination?.hasRoute(t.type) == true }
     val service by chrome.service.collectAsStateWithLifecycle()
@@ -138,6 +149,7 @@ fun AppNav(nav: NavHostController, startDestination: Any, enterPip: () -> Unit, 
         import = { nav.navigate(ImportRoute) },
         search = { goTop(TOP_LEVEL.first { it.route == SearchRoute }) },
         history = { nav.navigate(HistoryRoute) },
+        downloads = { nav.navigate(DownloadsRoute) },
         comments = { nav.navigate(CommentsRoute(it.source, it.remoteId, it.title)) },
         signIn = signIn,
     )
@@ -160,6 +172,7 @@ fun AppNav(nav: NavHostController, startDestination: Any, enterPip: () -> Unit, 
             composable<ShortsRoute> { ShortsScreen(listNav) }
             composable<WatchLaterRoute> { WatchLaterScreen(listNav) }
             composable<HistoryRoute> { HistoryScreen(listNav) }
+            composable<DownloadsRoute> { DownloadsScreen(play = { nav.navigate(PlayerRoute(it.source, it.remoteId, it.title, it.channelName)) }) }
             composable<CommentsRoute> { CommentsScreen() }
             composable<SubscriptionsRoute> {
                 SubscriptionsScreen(
@@ -195,13 +208,15 @@ fun AppNav(nav: NavHostController, startDestination: Any, enterPip: () -> Unit, 
 
     // One place in the tree for the NavHost, player or not: composing it elsewhere for the
     // player rebuilt it, and the list screens lost the tile to focus on the way back.
-    AppChrome(
-        current = TOP_LEVEL.indexOf(current),
-        onSelect = { goTop(TOP_LEVEL[it]) },
-        hasShorts = hasShorts,
-        showNav = showChrome,
-        content = host,
-    )
+    CompositionLocalProvider(LocalDownloadStates provides downloadStates) {
+        AppChrome(
+            current = TOP_LEVEL.indexOf(current),
+            onSelect = { goTop(TOP_LEVEL[it]) },
+            hasShorts = hasShorts,
+            showNav = showChrome,
+            content = host,
+        )
+    }
 }
 
 /**

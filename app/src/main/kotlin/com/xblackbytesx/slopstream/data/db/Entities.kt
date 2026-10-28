@@ -131,3 +131,40 @@ data class VideoRow(
     @ColumnInfo(name = "watched") val watched: Boolean?,
     @ColumnInfo(name = "inWatchLater") val inWatchLater: Boolean,
 )
+
+/**
+ * A video saved on this device (decision 24). Never synced: each device keeps its own. Files
+ * live in the downloads directory under [videoFile] and [audioFile]; a part file sits beside
+ * each until it is complete.
+ */
+@Entity(tableName = "download", primaryKeys = ["source", "remoteId"])
+data class DownloadEntity(
+    val source: String,
+    val remoteId: String,
+    val title: String,
+    val channelId: String,
+    val channelName: String,
+    val durationSec: Long,
+    val thumbnailUrl: String?,
+    /** The service's stream ids, to renew an expired URL. */
+    val videoStreamId: String,
+    val audioStreamId: String,
+    val videoFile: String,
+    val audioFile: String,
+    /** The video stream as the player's quality label shows it. */
+    val codecs: String,
+    val width: Int,
+    val height: Int,
+    val fps: Int,
+    val hdr: Boolean,
+    /** Expected total of both files; exact once both are done. */
+    val sizeBytes: Long,
+    val doneBytes: Long,
+    /** [DownloadState] name. */
+    val state: String,
+    val error: String?,
+    val addedAt: Long,
+    val finishedAt: Long?,
+)
+
+enum class DownloadState { QUEUED, RUNNING, DONE, FAILED }

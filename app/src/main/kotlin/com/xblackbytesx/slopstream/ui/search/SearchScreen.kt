@@ -73,6 +73,8 @@ import com.xblackbytesx.slopstream.core.SourceKey
 import com.xblackbytesx.slopstream.data.db.SubscriptionEntity
 import com.xblackbytesx.slopstream.data.db.VideoRow
 import com.xblackbytesx.slopstream.ui.comments.CommentsGate
+import com.xblackbytesx.slopstream.ui.downloads.DownloadActions
+import com.xblackbytesx.slopstream.ui.downloads.DownloadSheetHost
 import com.xblackbytesx.slopstream.ui.components.ChannelAvatar
 import com.xblackbytesx.slopstream.ui.components.EmptyState
 import com.xblackbytesx.slopstream.ui.components.PrimaryButton
@@ -111,6 +113,7 @@ fun SearchScreen(nav: SearchNav, vm: SearchViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     var menuFor by remember { mutableStateOf<Pair<VideoRow, Boolean>?>(null) }
     val commentsGate: CommentsGate = hiltViewModel()
+    val downloads: DownloadActions = hiltViewModel()
     // The tile last played or opened, focused again when the screen comes back (TV).
     var lastActivated by rememberSaveable { mutableStateOf<String?>(null) }
     val isTv = LocalIsTv.current
@@ -155,10 +158,12 @@ fun SearchScreen(nav: SearchNav, vm: SearchViewModel = hiltViewModel()) {
                 // A channel page only knows followed channels' cached videos.
                 openChannel = if (global) null else ({ nav.openChannel(row) }),
                 comments = if (commentsGate.offers(row.source)) ({ nav.comments(row) }) else null,
+                download = downloads.menu(row.source, row.remoteId, row.title),
             ),
             onDismiss = { menuFor = null },
         )
     }
+    DownloadSheetHost(downloads)
 }
 
 @Composable

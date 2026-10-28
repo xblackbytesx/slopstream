@@ -401,3 +401,37 @@ object LibrarySearch {
         return SimpleSQLiteQuery(sql(where), args.toTypedArray())
     }
 }
+
+@Dao
+interface DownloadDao {
+    @Query("SELECT * FROM download ORDER BY addedAt DESC")
+    fun observeAll(): Flow<List<DownloadEntity>>
+
+    @Query("SELECT * FROM download WHERE source = :source AND remoteId = :remoteId")
+    suspend fun get(source: String, remoteId: String): DownloadEntity?
+
+    @Query("SELECT * FROM download")
+    suspend fun all(): List<DownloadEntity>
+
+    /** The oldest one still to do; a RUNNING row is one a stopped worker left behind. */
+    @Query("SELECT * FROM download WHERE state IN ('QUEUED', 'RUNNING') ORDER BY addedAt LIMIT 1")
+    suspend fun next(): DownloadEntity?
+
+    @Upsert
+    suspend fun upsert(row: DownloadEntity)
+
+    @Query("UPDATE download SET state = :state, error = :error, finishedAt = :finishedAt WHERE source = :source AND remoteId = :remoteId")
+    suspend fun setState(source: String, remoteId: String, state: String, error: String? = null, finishedAt: Long? = null)
+
+    @Query("UPDATE download SET doneBytes = :doneBytes, sizeBytes = MAX(sizeBytes, :doneBytes) WHERE source = :source AND remoteId = :remoteId")
+    suspend fun progress(source: String, remoteId: String, doneBytes: Long)
+
+    @Query("UPDATE download SET sizeBytes = :sizeBytes WHERE source = :source AND remoteId = :remoteId")
+    suspend fun setSize(source: String, remoteId: String, sizeBytes: Long)
+
+    @Query("DELETE FROM download WHERE source = :source AND remoteId = :remoteId")
+    suspend fun delete(source: String, remoteId: String)
+
+    @Query("DELETE FROM download")
+    suspend fun deleteAll()
+}

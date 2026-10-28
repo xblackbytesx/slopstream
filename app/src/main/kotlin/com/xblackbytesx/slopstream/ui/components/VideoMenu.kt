@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.xblackbytesx.slopstream.data.db.VideoRow
+import com.xblackbytesx.slopstream.ui.downloads.DownloadMenu
 import com.xblackbytesx.slopstream.ui.theme.Palette
 
 data class VideoMenuActions(
@@ -44,6 +45,8 @@ data class VideoMenuActions(
     val openChannel: (() -> Unit)?,
     /** Null when comments are off or the service has none (decision 20). */
     val comments: (() -> Unit)? = null,
+    /** Null where the service has no downloads (decision 24). */
+    val download: DownloadMenu? = null,
 )
 
 /** Long-press (or the remote's menu key) on a tile. */
@@ -77,6 +80,9 @@ fun VideoMenuDialog(row: VideoRow, actions: VideoMenuActions, onDismiss: () -> U
             actions.comments?.let { open ->
                 MenuItem(Icons.AutoMirrored.Filled.Comment, "Comments") { onDismiss(); open() }
             }
+            actions.download?.let { d ->
+                MenuItem(d.icon, d.label) { onDismiss(); d.onClick() }
+            }
             actions.openChannel?.let { open ->
                 MenuItem(Icons.Filled.AccountCircle, "Go to ${row.channelName}") { onDismiss(); open() }
             }
@@ -104,7 +110,7 @@ internal class HeldKeyGuard {
 }
 
 @Composable
-private fun MenuItem(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun MenuItem(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     ListRow(modifier = modifier, onClick = onClick) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, tint = Palette.Accent, modifier = Modifier.size(20.dp))

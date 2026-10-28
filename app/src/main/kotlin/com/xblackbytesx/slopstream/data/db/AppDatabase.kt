@@ -6,8 +6,8 @@ import androidx.room.RoomDatabase
 
 /** Schema history lives in app/schemas/; every bump is an AutoMigration checked against it. */
 @Database(
-    entities = [SubscriptionEntity::class, FeedItemEntity::class, WatchStateEntity::class, WatchLaterEntity::class],
-    version = 5,
+    entities = [SubscriptionEntity::class, FeedItemEntity::class, WatchStateEntity::class, WatchLaterEntity::class, DownloadEntity::class],
+    version = 6,
     exportSchema = true,
     autoMigrations = [
         // 2: subscription.favorite
@@ -18,6 +18,8 @@ import androidx.room.RoomDatabase
         AutoMigration(from = 3, to = 4),
         // 5: feed_item.archived (older videos loaded on a channel page, decision 23)
         AutoMigration(from = 4, to = 5),
+        // 6: download (videos saved on this device, decision 24)
+        AutoMigration(from = 5, to = 6),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -25,4 +27,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun feed(): FeedDao
     abstract fun watch(): WatchDao
     abstract fun sync(): SyncDao
+    abstract fun downloads(): DownloadDao
 }

@@ -274,6 +274,36 @@ A new service is a new JVM module implementing `ContentSource`, registered in
       minute apart below the oldest cached Short in page order, and their tiles show no date.
     - `make smoke` pages three times back on the Videos and Shorts tabs.
 
+24. **Download and Archive** (2026-10-29, the user's call): two features, one entry. Download
+    keeps a copy on this device for offline viewing (disposable, per device, never synced);
+    Archive (next, server side) keeps a permanent copy on the sync server so a video survives
+    its deletion. Code names `download` and `vault`, so neither clashes with `ChannelArchive`.
+    Download is built for YouTube; Floatplane and Sauce+ (encrypted HLS) come later.
+    - `ContentSource.downloadOffer` / `downloadStream`, `SourceCapabilities.canDownload`. Only
+      whole-file (progressive) adaptive streams, each with its exact size (`clen`). The sheet
+      lists every resolution the device decodes, best first and preselected, ignoring the
+      quality cap (that is for streaming), each with its size and the free space.
+    - Video and audio are kept as the two files YouTube serves, never muxed, and play merged
+      like streaming does (`PlaybackPlan.Local`): no ffmpeg, nothing to break. Files go in the
+      app's own external files dir (`downloads/`); no permission, removed on uninstall.
+    - `Downloads` is the queue (the `download` table, schema 6); `DownloadWorker` works it one
+      video at a time in a foreground worker (dataSync, a progress notification; phones ask
+      for notifications on the first download). `RangeFetcher` asks googlevideo.com for
+      10 MB ranges shaped like the player's (`StreamRequests`), resumes a `.part` file, renews
+      an expired URL once per position by stream id. A lost network leaves the row queued
+      and the worker retries; anything else marks it failed, and selecting it retries.
+    - Playback prefers the files: `PlaybackRepository.resolve` returns the local plan before
+      asking the service, and prefetch skips downloaded videos. Files that are gone mark the
+      row failed instead of playing.
+    - Places: the video menu ("Download…", "Cancel download", "Remove download"); the player's
+      new **More** button, which now also holds Comments (one button fewer in the control
+      row); a badge on the tile; the Downloads screen, a button on Watch later next to
+      History (no new nav item: the phone's bottom bar is full), with sizes, used and free
+      space, delete one or all.
+    - Refuses a download that would leave under 200 MB free.
+    - `make smoke` checks the offer (exact sizes), a 10 MB range, the last range and a renewed
+      URL against a live 4K upload.
+
 ## Invariants
 
 - **No algorithmic content.** Feeds hold only subscribed channels; ordering is publish date
@@ -333,7 +363,12 @@ keep only the TeamNewPipe entries it adds, then `make smoke`. Check NewPipe's
    0.2.0), long-poll and durations 2026-10-24 (decision 21, 0.3.0). Next: premieres (an
    "upcoming" state with its start time on both sides); NewPipe history import; optional
    server thumbnail proxy (server roadmap).
-5. Sauce+. Checked 2026-10-23: www.sauceplus.com serves the same frontend build as
+5. Archive on the server (decision 24, phase 2): yt-dlp in the server image (pinned, opt-in
+   self-update), files in `/data/vault`, an Archive list on the website, playback from the
+   server so a video plays after YouTube deleted it (order: this device, the server, the
+   service). The Save sheet then offers both. Later: auto-archive chosen channels;
+   Floatplane and Sauce+ downloads.
+6. Sauce+. Checked 2026-10-23: www.sauceplus.com serves the same frontend build as
    Floatplane with a branding config, so the same API and website sign-in apply; the
    session cookie is named `__Host-sp-sess` there instead of `sails.sid`. Differences in that config: its own accounts (Keycloak realm `sauceplus`,
    company Open Sauce Inc.), `usesGlobalSubscriptions: true` (one subscription for every

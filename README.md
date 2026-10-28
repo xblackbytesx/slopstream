@@ -23,6 +23,8 @@ for phones, tablets and TVs (Android 11+, including the NVIDIA Shield and Google
   for volume (landscape), picture-in-picture.
 - Every channel page can go back through the channel's whole history: "Load older videos"
   at the end of each tab fetches the next page, one press at a time.
+- Download YouTube videos to watch offline, in any quality your device plays, with a Downloads
+  screen to see what they take and delete them.
 - Search your library, or YouTube itself when you ask for it.
 - Comments on YouTube, Floatplane and Sauce+, if you turn them on: loaded only when you open
   them, never stored.

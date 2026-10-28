@@ -6,6 +6,8 @@ import com.xblackbytesx.slopstream.core.ChannelFeed
 import com.xblackbytesx.slopstream.core.Comment
 import com.xblackbytesx.slopstream.core.CommentsPage
 import com.xblackbytesx.slopstream.core.ContentSource
+import com.xblackbytesx.slopstream.core.DownloadOffer
+import com.xblackbytesx.slopstream.core.DownloadStream
 import com.xblackbytesx.slopstream.core.SourceBlockedException
 import com.xblackbytesx.slopstream.core.SourceCapabilities
 import com.xblackbytesx.slopstream.core.SourceException
@@ -73,6 +75,7 @@ class YoutubeSource(
         needsLogin = false, hasShorts = true, hasLive = true, canSearchChannels = true, canSearchVideos = true,
         importsSubscriptions = true, hasComments = true, enrichesDurations = true,
         archiveKinds = setOf(VideoKind.VIDEO, VideoKind.SHORT, VideoKind.LIVE),
+        canDownload = true,
     )
 
     override suspend fun searchChannels(query: String): List<Channel> = io {
@@ -147,6 +150,14 @@ class YoutubeSource(
     override suspend fun switchVideo(plan: PlaybackPlan.Adaptive, candidateId: String): PlaybackPlan.Adaptive = io {
         val info = StreamInfo.getInfo(service, YoutubeIds.videoUrl(plan.videoId))
         streams.switch(info, plan, candidateId)
+    }
+
+    override suspend fun downloadOffer(videoId: String, profile: DeviceProfile, prefs: PlaybackPrefs): DownloadOffer = io {
+        streams.downloadOffer(StreamInfo.getInfo(service, YoutubeIds.videoUrl(videoId)), profile, prefs)
+    }
+
+    override suspend fun downloadStream(videoId: String, streamId: String): DownloadStream = io {
+        streams.downloadStream(StreamInfo.getInfo(service, YoutubeIds.videoUrl(videoId)), streamId)
     }
 
     /**

@@ -51,6 +51,14 @@ interface ContentSource {
      */
     suspend fun durations(channelId: String): Map<String, Long> = emptyMap()
 
+    /** What [videoId] can be downloaded as on this device ([SourceCapabilities.canDownload]). */
+    suspend fun downloadOffer(videoId: String, profile: DeviceProfile, prefs: PlaybackPrefs): DownloadOffer =
+        throw SourceUnavailableException("This service has no downloads here")
+
+    /** One stream of [downloadOffer] again, by its [DownloadStream.id], with a fresh URL. */
+    suspend fun downloadStream(videoId: String, streamId: String): DownloadStream =
+        throw SourceUnavailableException("This service has no downloads here")
+
     /**
      * A channel's uploads of one [kind], a page at a time from the newest back to the first
      * ([SourceCapabilities.archiveKinds]); the first page when [from] is null. Only run when the

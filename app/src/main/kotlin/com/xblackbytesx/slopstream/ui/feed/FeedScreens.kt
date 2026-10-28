@@ -54,6 +54,8 @@ import com.xblackbytesx.slopstream.ui.components.ServiceBar
 import com.xblackbytesx.slopstream.ui.components.SecondaryButton
 import com.xblackbytesx.slopstream.ui.components.VideoActions
 import com.xblackbytesx.slopstream.ui.components.VideoGrid
+import com.xblackbytesx.slopstream.ui.downloads.DownloadActions
+import com.xblackbytesx.slopstream.ui.downloads.DownloadSheetHost
 import com.xblackbytesx.slopstream.ui.components.VideoMenuActions
 import com.xblackbytesx.slopstream.ui.components.VideoMenuDialog
 import com.xblackbytesx.slopstream.ui.components.relativeTime
@@ -72,6 +74,7 @@ data class ListNav(
     val search: () -> Unit = {},
     val signIn: (SourceKey) -> Unit = {},
     val history: () -> Unit = {},
+    val downloads: () -> Unit = {},
     val comments: (VideoRow) -> Unit = {},
 )
 
@@ -150,8 +153,9 @@ fun WatchLaterScreen(nav: ListNav, vm: WatchLaterViewModel = hiltViewModel()) {
         nav = nav,
         serviceBar = true,
         subHeader = {
-            FlowRow(Modifier.padding(horizontal = LocalDims.current.gutter).padding(bottom = 8.dp)) {
+            FlowRow(Modifier.padding(horizontal = LocalDims.current.gutter).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SecondaryButton("History", nav.history, icon = Icons.Filled.History)
+                SecondaryButton("Downloads", nav.downloads, icon = Icons.Filled.Download)
             }
         },
         empty = { EmptyState("Nothing saved", "Long-press a video, or press the menu button on the remote, to keep it for later.") },
@@ -273,6 +277,7 @@ private fun VideoListScreen(
 ) {
     val service by vm.service.collectAsStateWithLifecycle()
     val commentsGate: CommentsGate = hiltViewModel()
+    val downloads: DownloadActions = hiltViewModel()
     var menuFor by remember { mutableStateOf<VideoRow?>(null) }
     val isTv = LocalIsTv.current
     // Held here, not inside the grid: the grid leaves composition for a frame while the list
@@ -346,10 +351,12 @@ private fun VideoListScreen(
                 toggleWatched = { vm.toggleWatched(row) },
                 openChannel = if (showChannel) ({ nav.openChannel(row) }) else null,
                 comments = if (commentsGate.offers(row.source)) ({ nav.comments(row) }) else null,
+                download = downloads.menu(row.source, row.remoteId, row.title),
             ),
             onDismiss = { menuFor = null },
         )
     }
+    DownloadSheetHost(downloads)
 }
 
 internal fun refreshStatus(s: RefreshState): String? = when {

@@ -4,6 +4,8 @@ import com.xblackbytesx.slopstream.core.ArchivePage
 import com.xblackbytesx.slopstream.core.Channel
 import com.xblackbytesx.slopstream.core.ChannelFeed
 import com.xblackbytesx.slopstream.core.ContentSource
+import com.xblackbytesx.slopstream.core.DownloadOffer
+import com.xblackbytesx.slopstream.core.DownloadStream
 import com.xblackbytesx.slopstream.core.SourceCapabilities
 import com.xblackbytesx.slopstream.core.SourceKey
 import com.xblackbytesx.slopstream.core.VideoItem
@@ -53,6 +55,15 @@ open class FakeSource(
     }
 
     override suspend fun accountSubscriptions(): List<Channel> = account()
+
+    /** What [downloadOffer] answers; [downloadStream] finds its streams in it by id. */
+    var offer: DownloadOffer? = null
+
+    override suspend fun downloadOffer(videoId: String, profile: DeviceProfile, prefs: PlaybackPrefs): DownloadOffer =
+        offer ?: error("no offer")
+
+    override suspend fun downloadStream(videoId: String, streamId: String): DownloadStream =
+        offer!!.let { o -> (o.videos + o.audio).first { it.id == streamId } }
 
     override suspend fun searchChannels(query: String): List<Channel> = emptyList()
     override suspend fun searchVideos(query: String): List<VideoItem> = emptyList()
