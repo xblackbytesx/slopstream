@@ -30,6 +30,8 @@ jobs:
       AGP_BUILD_TOOLS_VERSION: "36.0.0"
       GRADLE_VERSION: "9.8.0"
       ANDROID_HOME: /opt/android-sdk
+      # Hosted runners preset ANDROID_SDK_ROOT to their own SDK; AGP fails when the two differ.
+      ANDROID_SDK_ROOT: /opt/android-sdk
       SIGNING_ENABLED: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
