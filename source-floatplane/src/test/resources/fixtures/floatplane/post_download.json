@@ -1,0 +1,10 @@
+{
+ "id": "postD",
+ "title": "A post to download",
+ "releaseDate": "2026-10-20T12:00:00.000Z",
+ "isAccessible": true,
+ "creator": {"id": "creatorA", "owner": "owner1", "title": "Creator A", "urlname": "creatora"},
+ "thumbnail": {"width": 1280, "height": 720, "path": "https://pbs.example/thumb.jpeg", "childImages": [{"width": 640, "height": 360, "path": "https://pbs.example/thumb_640.jpeg"}]},
+ "attachmentOrder": ["vidD"],
+ "videoAttachments": [{"id": "vidD", "title": "Video", "duration": 600, "isProcessing": false, "isAccessible": true}]
+}

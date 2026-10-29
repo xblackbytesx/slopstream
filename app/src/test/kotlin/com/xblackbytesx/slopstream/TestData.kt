@@ -63,7 +63,7 @@ open class FakeSource(
         offer ?: error("no offer")
 
     override suspend fun downloadStream(videoId: String, streamId: String): DownloadStream =
-        offer!!.let { o -> (o.videos + o.audio).first { it.id == streamId } }
+        offer!!.let { o -> (o.videos + listOfNotNull(o.audio)).first { it.id == streamId } }
 
     override suspend fun searchChannels(query: String): List<Channel> = emptyList()
     override suspend fun searchVideos(query: String): List<VideoItem> = emptyList()

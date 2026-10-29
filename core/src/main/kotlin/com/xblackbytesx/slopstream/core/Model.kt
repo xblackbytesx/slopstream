@@ -155,6 +155,8 @@ data class ImportedSubscription(
 /**
  * What a video can be downloaded as (decision 24): its video streams the device can play, best
  * first, and the audio that goes with them. Each is one whole file, fetched by byte range.
+ * Without [audio] each video file carries its own sound (Floatplane's MP4s, decision 26); an
+ * audio-only download then takes the smallest one and keeps its sound alone.
  */
 data class DownloadOffer(
     val videoId: String,
@@ -164,8 +166,14 @@ data class DownloadOffer(
     val durationSec: Long,
     val thumbnailUrl: String?,
     val videos: List<DownloadStream>,
-    val audio: DownloadStream,
-)
+    val audio: DownloadStream?,
+) {
+    /** Where an audio-only download comes from: the audio stream, or the smallest video file. */
+    val audioSource: DownloadStream? get() = audio ?: videos.minByOrNull { it.sizeBytes ?: Long.MAX_VALUE }
+
+    /** What an audio-only download ends up taking on the device. */
+    val audioOnlySize: Long? get() = audio?.sizeBytes ?: audioSource?.audioSizeBytes
+}
 
 /** One downloadable file. [url] expires within hours: [ContentSource.downloadStream] renews it. */
 data class DownloadStream(
@@ -179,4 +187,6 @@ data class DownloadStream(
     val sizeExact: Boolean,
     /** Null for audio. */
     val video: VideoCandidate? = null,
+    /** A video file with its sound in it: the sound's share of [sizeBytes], estimated. */
+    val audioSizeBytes: Long? = null,
 )

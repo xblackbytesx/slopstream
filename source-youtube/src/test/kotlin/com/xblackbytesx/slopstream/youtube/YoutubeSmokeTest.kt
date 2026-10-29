@@ -220,7 +220,8 @@ class YoutubeSmokeTest {
         val offer = source.downloadOffer("LXb3EKWsInQ", shield, PlaybackPrefs(QualityCap.P1080))
         println("offer '${offer.title}' by ${offer.channelName} (${offer.channelId}) ${offer.durationSec}s")
         offer.videos.forEach { println("  ${it.video?.label} ${it.extension} ${it.sizeBytes} exact=${it.sizeExact}") }
-        println("  audio ${offer.audio.id} ${offer.audio.extension} ${offer.audio.sizeBytes} exact=${offer.audio.sizeExact}")
+        val audio = offer.audio!!
+        println("  audio ${audio.id} ${audio.extension} ${audio.sizeBytes} exact=${audio.sizeExact}")
         // The cap is for streaming: a download offers the best the device decodes.
         assertTrue(offer.videos.first().video!!.lines >= 2160)
         assertTrue(offer.channelId.startsWith("UC"))
@@ -243,8 +244,8 @@ class YoutubeSmokeTest {
         println("  last 64 KB: HTTP $endCode, $endGot bytes")
         assertTrue(endCode in 200..299 && endGot == 65_536)
 
-        val again = source.downloadStream("LXb3EKWsInQ", offer.audio.id)
-        assertEquals(offer.audio.sizeBytes, again.sizeBytes)
+        val again = source.downloadStream("LXb3EKWsInQ", audio.id)
+        assertEquals(audio.sizeBytes, again.sizeBytes)
         val (audioCode, audioGot) = fetch(again.url, 0, 65_536)
         println("  audio by id again: HTTP $audioCode, $audioGot bytes")
         assertTrue(audioCode in 200..299 && audioGot == 65_536)

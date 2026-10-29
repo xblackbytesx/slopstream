@@ -9,8 +9,10 @@ import com.xblackbytesx.slopstream.data.KeystoreSecretStore
 import com.xblackbytesx.slopstream.data.SecretStore
 import com.xblackbytesx.slopstream.data.TokenStore
 import com.xblackbytesx.slopstream.data.db.AppDatabase
+import com.xblackbytesx.slopstream.data.download.AudioExtractor
 import com.xblackbytesx.slopstream.data.download.DownloadScheduler
 import com.xblackbytesx.slopstream.data.download.DownloadWorker
+import com.xblackbytesx.slopstream.data.download.TransformerAudioExtractor
 import com.xblackbytesx.slopstream.data.db.DownloadDao
 import com.xblackbytesx.slopstream.data.db.FeedDao
 import com.xblackbytesx.slopstream.data.db.SubscriptionDao
@@ -97,6 +99,9 @@ object AppModule {
     @Provides fun feedDao(db: AppDatabase): FeedDao = db.feed()
     @Provides fun watchDao(db: AppDatabase): WatchDao = db.watch()
     @Provides fun downloadDao(db: AppDatabase): DownloadDao = db.downloads()
+
+    @Provides
+    fun audioExtractor(extractor: TransformerAudioExtractor): AudioExtractor = extractor
 
     @Provides
     fun downloadScheduler(@ApplicationContext context: Context): DownloadScheduler = DownloadScheduler { DownloadWorker.enqueue(context) }

@@ -50,12 +50,17 @@ class DownloadsTest {
     private val clock = object : Clock() { override fun now() = 1_800_000_000_000L }
     private var kicks = 0
 
+    /** Keeps the first half of the file, standing in for Transformer's audio extraction. */
+    private var extractor = AudioExtractor { input, output -> output.writeBytes(input.readBytes().copyOf(input.length().toInt() / 2)) }
+    private val requested = java.util.concurrent.CopyOnWriteArrayList<String>()
+
     @Before
     fun setUp() {
         db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Application>(), AppDatabase::class.java)
             .allowMainThreadQueries().build()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
+                requested += request.url.encodedPath
                 val body = files[request.url.encodedPath] ?: return MockResponse.Builder().code(404).build()
                 val (from, to) = Regex("bytes=(\\d+)-(\\d+)").find(request.headers["Range"].orEmpty())!!.destructured
                 val end = minOf(to.toInt(), body.size - 1)
@@ -82,7 +87,7 @@ class DownloadsTest {
 
     private fun downloads(dir: File = tmp.root) = Downloads(
         dir, db.downloads(), Sources(source), Settings(ApplicationProvider.getApplicationContext()), clock, OkHttpClient(),
-        DownloadScheduler { kicks++ }, RangeFetcher(OkHttpClient(), chunkBytes = 8_000),
+        DownloadScheduler { kicks++ }, { input, output -> extractor.extract(input, output) }, RangeFetcher(OkHttpClient(), chunkBytes = 8_000),
     )
 
     private suspend fun queued(d: Downloads) {
@@ -106,9 +111,90 @@ class DownloadsTest {
         assertEquals(clock.now(), row.finishedAt)
         val plan = d.localPlan("yt", "v1")
         assertNotNull(plan)
-        assertArrayEquals(files["/video"], File(plan!!.videoPath).readBytes())
-        assertArrayEquals(files["/audio"], File(plan.audioPath).readBytes())
+        assertArrayEquals(files["/video"], File(plan!!.videoPath!!).readBytes())
+        assertArrayEquals(files["/audio"], File(plan.audioPath!!).readBytes())
         assertEquals("1080p · VP9", plan.quality!!.label)
+    }
+
+    @Test
+    fun audioOnlyFetchesTheAudioAloneAndPlaysWithoutVideo() = runTest {
+        val d = downloads()
+        d.start("yt", source.offer!!, video = null)
+        assertTrue(d.runQueue())
+
+        val row = db.downloads().get("yt", "v1")!!
+        assertEquals(DownloadState.DONE.name, row.state)
+        assertNull(row.videoFile)
+        assertEquals(7_000L, row.sizeBytes)
+        assertTrue(requested.none { it == "/video" })
+        val plan = d.localPlan("yt", "v1")!!
+        assertTrue(plan.audioOnly)
+        assertNull(plan.quality)
+        assertEquals("Channel", plan.channelName)
+        assertArrayEquals(files["/audio"], File(plan.audioPath!!).readBytes())
+    }
+
+    @Test
+    fun aNewQualityReplacesTheDownloadThatWasThere() = runTest {
+        val d = downloads()
+        queued(d)
+        d.runQueue()
+        d.start("yt", source.offer!!, video = null)
+        d.runQueue()
+        // Only the audio file (and nothing of the video one) is left.
+        assertEquals(listOf("yt_v1.a.webm"), tmp.root.list()!!.sorted())
+        assertTrue(d.localPlan("yt", "v1")!!.audioOnly)
+    }
+
+    /** Floatplane's shape: every file has picture and sound, no separate audio. */
+    private fun muxed() = offer(server.url("/video").toString(), "").copy(
+        audio = null,
+        videos = listOf(
+            DownloadStream("att:1080", server.url("/video").toString(), "mp4", 30_000, sizeExact = false, video = VideoCandidate("1080", "avc1", 1920, 1080, 30, 0, false), audioSizeBytes = 3_000),
+            DownloadStream("att:360", server.url("/audio").toString(), "mp4", 7_000, sizeExact = false, video = VideoCandidate("360", "avc1", 640, 360, 30, 0, false), audioSizeBytes = 1_000),
+        ),
+    )
+
+    @Test
+    fun aOneFileDownloadPlaysThatFile() = runTest {
+        source.offer = muxed()
+        val d = downloads()
+        d.start("yt", source.offer!!, source.offer!!.videos.first())
+        assertTrue(d.runQueue())
+        val plan = d.localPlan("yt", "v1")!!
+        assertFalse(plan.audioOnly)
+        assertNull(plan.audioPath)
+        assertArrayEquals(files["/video"], File(plan.videoPath!!).readBytes())
+        assertEquals(listOf("/video"), requested.distinct())
+    }
+
+    @Test
+    fun audioOnlyFromAOneFileDownloadKeepsTheSoundOfTheSmallestFile() = runTest {
+        source.offer = muxed()
+        val d = downloads()
+        d.start("yt", source.offer!!, video = null)
+        assertEquals(1_000L, db.downloads().get("yt", "v1")!!.sizeBytes)
+        assertTrue(d.runQueue())
+
+        val plan = d.localPlan("yt", "v1")!!
+        assertTrue(plan.audioOnly)
+        assertArrayEquals(files["/audio"]!!.copyOf(3_500), File(plan.audioPath!!).readBytes())
+        assertTrue(plan.audioPath!!.endsWith(".m4a"))
+        assertEquals(listOf("yt_v1.a.m4a"), tmp.root.list()!!.sorted())
+        assertEquals(3_500L, db.downloads().get("yt", "v1")!!.sizeBytes)
+    }
+
+    @Test
+    fun whenTheSoundCannotBeTakenOutTheWholeFileStays() = runTest {
+        source.offer = muxed()
+        extractor = AudioExtractor { _, _ -> throw IllegalStateException("no muxer") }
+        val d = downloads()
+        d.start("yt", source.offer!!, video = null)
+        assertTrue(d.runQueue())
+        val plan = d.localPlan("yt", "v1")!!
+        assertTrue(plan.audioOnly)
+        assertArrayEquals(files["/audio"], File(plan.audioPath!!).readBytes())
+        assertEquals(listOf("yt_v1.a.m4a"), tmp.root.list()!!.sorted())
     }
 
     @Test

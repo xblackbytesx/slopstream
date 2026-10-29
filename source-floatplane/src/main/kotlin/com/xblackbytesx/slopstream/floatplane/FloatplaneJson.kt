@@ -119,6 +119,7 @@ data class PostDetailDto(
     val videoAttachments: List<VideoAttachmentDto> = emptyList(),
     /** The creator object; its `owner` is a user id or a user object. */
     val creator: JsonElement? = null,
+    val thumbnail: ImageDto? = null,
 )
 
 @Serializable

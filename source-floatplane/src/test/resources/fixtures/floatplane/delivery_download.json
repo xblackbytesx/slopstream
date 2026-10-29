@@ -1,0 +1,17 @@
+{
+ "groups": [
+  {
+   "origins": [{"url": "https://edge01.example"}, {"url": "https://edge02.example"}],
+   "variants": [
+    {"name": "360-avc1", "label": "360p", "url": "/Videos/vidD/360.mp4?token=TOKEN", "mimeType": "video/mp4", "enabled": true, "hidden": false,
+     "meta": {"video": {"codec": "avc1.64001e", "bitrate": {"average": 256000}, "width": 640, "height": 360, "isHdr": false, "fps": 29.97, "mimeType": "video/mp4"},
+              "audio": {"codec": "mp4a.40.2", "bitrate": {"average": 96000}, "mimeType": "video/mp4"}}},
+    {"name": "1080-avc1", "label": "1080p", "url": "/Videos/vidD/1080.mp4?token=TOKEN", "mimeType": "video/mp4", "enabled": true, "hidden": false,
+     "meta": {"video": {"codec": "avc1.64002a", "bitrate": {"average": 4000000}, "width": 1920, "height": 1080, "isHdr": false, "fps": 29.97, "mimeType": "video/mp4"},
+              "audio": {"codec": "mp4a.40.2", "bitrate": {"average": 96000}, "mimeType": "video/mp4"}}},
+    {"name": "2160-avc1", "label": "4K", "url": "", "mimeType": "video/mp4", "enabled": false, "hidden": false,
+     "meta": {"video": {"codec": "avc1.640034", "bitrate": {"average": 16000000}, "width": 3840, "height": 2160, "isHdr": false, "fps": 29.97, "mimeType": "video/mp4"}}}
+   ]
+  }
+ ]
+}

@@ -57,16 +57,24 @@ sealed interface PlaybackPlan {
 
     /**
      * A download on this device (decision 24): the video file and the audio file, merged at
-     * playback like [Adaptive]. Paths are absolute; nothing here touches the network.
+     * playback like [Adaptive]; one file with both (Floatplane, [audioPath] null); or the audio
+     * alone ([audioOnly], [videoPath] null), which plays like a podcast, on with the screen off.
+     * An audio-only file may still hold a picture track: the player leaves it undecoded. Paths
+     * are absolute; nothing here touches the network.
      */
     data class Local(
         override val videoId: String,
         override val title: String,
         override val durationSec: Long,
-        val videoPath: String,
-        val audioPath: String,
+        val videoPath: String?,
+        val audioPath: String?,
         val quality: VideoCandidate?,
-    ) : PlaybackPlan
+        val channelName: String = "",
+        /** The saved thumbnail, for the player and the media notification. */
+        val artworkPath: String? = null,
+    ) : PlaybackPlan {
+        val audioOnly: Boolean get() = videoPath == null
+    }
 
     /** One muxed file: last resort when a video has no adaptive streams. */
     data class Progressive(

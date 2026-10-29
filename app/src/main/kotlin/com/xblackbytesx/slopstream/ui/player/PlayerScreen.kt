@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
@@ -75,6 +77,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -89,6 +92,7 @@ import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import coil3.compose.AsyncImage
 import com.xblackbytesx.slopstream.core.playback.PlaybackPlan
 import com.xblackbytesx.slopstream.core.playback.chosenQuality
 import com.xblackbytesx.slopstream.core.playback.qualityOptions
@@ -108,6 +112,7 @@ import com.xblackbytesx.slopstream.ui.downloads.DownloadMenu
 import com.xblackbytesx.slopstream.ui.downloads.DownloadSheetHost
 import com.xblackbytesx.slopstream.ui.theme.LocalIsTv
 import com.xblackbytesx.slopstream.ui.theme.Palette
+import java.io.File
 import kotlinx.coroutines.delay
 
 @Composable
@@ -179,6 +184,9 @@ fun PlayerChrome(
     val swipe = rememberSwipeAdjust()
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val swipeEnabled = !isTv && landscape && !portraitShorts && !inPip && !showComments
+    val localPlan = state.plan as? PlaybackPlan.Local
+    // An audio download plays like a podcast: controls stay up, the screen may sleep, no PiP.
+    val audioOnly = localPlan?.audioOnly == true
 
     fun poke() { lastInteraction = System.currentTimeMillis(); visible = true }
     fun togglePlay() { if (player.isPlaying) player.pause() else { if (state.ended) player.seekTo(0); player.play() }; poke() }
@@ -190,10 +198,10 @@ fun PlayerChrome(
 
     ImmersiveMode()
     FrameRateEffect(enabled = isTv && matchFrameRate, fps = state.frameRate)
-    PipSessionEffect(state)
+    PipSessionEffect(state, pip = !audioOnly)
 
-    LaunchedEffect(visible, state.playing, lastInteraction) {
-        if (visible && state.playing) {
+    LaunchedEffect(visible, state.playing, lastInteraction, audioOnly) {
+        if (visible && state.playing && !audioOnly) {
             delay(4_000)
             visible = false
             runCatching { rootFocus.requestFocus() }
@@ -239,10 +247,22 @@ fun PlayerChrome(
                     isFocusable = false
                 }
             },
-            update = { it.player = player },
+            update = {
+                it.player = player
+                it.keepScreenOn = !audioOnly
+            },
             onRelease = { it.player = null },
             modifier = Modifier.fillMaxSize(),
         )
+
+        if (audioOnly) {
+            AsyncImage(
+                model = localPlan.artworkPath?.let(::File),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.6f).aspectRatio(16f / 9f).clip(RoundedCornerShape(16.dp)),
+            )
+        }
 
         if (state.resolving || (state.buffering && !state.ended)) {
             CircularProgressIndicator(Modifier.align(Alignment.Center).size(48.dp), color = Palette.Accent, strokeWidth = 3.dp)
@@ -262,7 +282,7 @@ fun PlayerChrome(
                     onTogglePlay = ::togglePlay,
                     onSeek = ::seekBy,
                     onQuality = { showQuality = true },
-                    onMore = if (comments != null || download != null) ({ showMore = true }) else null,
+                    onMore = if (comments != null || download != null || audioOnly) ({ showMore = true }) else null,
                     onPip = if (!isTv) enterPip else null,
                     onInteract = ::poke,
                     compact = portraitShorts,
@@ -302,6 +322,7 @@ fun PlayerChrome(
         MoreDialog(
             onComments = comments?.let { c -> { c.start(); showComments = true } },
             download = download,
+            onWatchVideo = if (audioOnly) engine::streamVideo else null,
             onDismiss = { showMore = false },
         )
     }
@@ -399,7 +420,7 @@ private fun Controls(
                         subtitle.takeIf { it.isNotBlank() },
                         state.plan?.chosenQuality?.label,
                         if (live) "LIVE" else null,
-                        if (state.plan is PlaybackPlan.Local) "Downloaded" else null,
+                        (state.plan as? PlaybackPlan.Local)?.let { if (it.audioOnly) "Audio only · Downloaded" else "Downloaded" },
                     ).joinToString(" · ")
                     if (meta.isNotEmpty()) Text(meta, style = MaterialTheme.typography.bodyMedium, color = Palette.TextDim)
                 }
@@ -531,18 +552,21 @@ private fun SeekBar(position: Long, buffered: Long, duration: Long, onSeekTo: (L
 
 /** What the player keeps out of its control row: comments and downloading. */
 @Composable
-private fun MoreDialog(onComments: (() -> Unit)?, download: DownloadMenu?, onDismiss: () -> Unit) {
+private fun MoreDialog(onComments: (() -> Unit)?, download: DownloadMenu?, onWatchVideo: (() -> Unit)?, onDismiss: () -> Unit) {
     val first = remember { FocusRequester() }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier.width(340.dp).background(Palette.Surface, RoundedCornerShape(20.dp)).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            onComments?.let { open ->
-                MenuItem(Icons.AutoMirrored.Filled.Comment, "Comments", Modifier.focusRequester(first)) { onDismiss(); open() }
-            }
-            download?.let { d ->
-                MenuItem(d.icon, d.label, if (onComments == null) Modifier.focusRequester(first) else Modifier) { onDismiss(); d.onClick() }
+            // The first item takes focus (TV).
+            val items = listOfNotNull(
+                onWatchVideo?.let { Triple(Icons.Filled.OndemandVideo, "Watch the video (streams it)", it) },
+                onComments?.let { Triple(Icons.AutoMirrored.Filled.Comment, "Comments", it) },
+                download?.let { Triple(it.icon, it.label, it.onClick) },
+            )
+            items.forEachIndexed { i, (icon, label, action) ->
+                MenuItem(icon, label, if (i == 0) Modifier.focusRequester(first) else Modifier) { onDismiss(); action() }
             }
         }
     }
@@ -593,11 +617,11 @@ private fun FrameRateEffect(enabled: Boolean, fps: Float?) {
 }
 
 @Composable
-private fun PipSessionEffect(state: EngineState) {
-    LaunchedEffect(state.playing, state.videoWidth, state.videoHeight) {
+private fun PipSessionEffect(state: EngineState, pip: Boolean) {
+    LaunchedEffect(state.playing, state.videoWidth, state.videoHeight, pip) {
         PlayerSession.update(
             PlayerSession.Info(
-                active = true,
+                active = pip,
                 playing = state.playing,
                 width = state.videoWidth.takeIf { it > 0 } ?: 16,
                 height = state.videoHeight.takeIf { it > 0 } ?: 9,

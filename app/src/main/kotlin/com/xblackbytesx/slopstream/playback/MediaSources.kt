@@ -5,6 +5,7 @@ import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
@@ -79,16 +80,34 @@ class MediaSources @Inject constructor(okHttp: OkHttpClient) {
         is PlaybackPlan.Progressive -> ProgressiveMediaSource.Factory(youtube)
             .createMediaSource(MediaItem.fromUri(plan.url))
         // A download: YouTube's whole-file streams carry their own seek index (sidx, Cues).
-        is PlaybackPlan.Local -> MergingMediaSource(
-            /* adjustPeriodTimeOffsets = */ true,
-            /* clipDurations = */ true,
-            local(plan.videoPath),
-            local(plan.audioPath),
-        )
+        is PlaybackPlan.Local -> {
+            val video = plan.videoPath
+            val audio = plan.audioPath
+            when {
+                video != null && audio != null -> MergingMediaSource(
+                    /* adjustPeriodTimeOffsets = */ true,
+                    /* clipDurations = */ true,
+                    local(video),
+                    local(audio),
+                )
+                // One file with picture and sound (Floatplane).
+                video != null -> local(video)
+                // Named for the media notification and the lock screen (background playback).
+                else -> local(requireNotNull(audio) { "a download without files" }, metadata(plan))
+            }
+        }
     }
 
-    private fun local(path: String): MediaSource =
-        ProgressiveMediaSource.Factory(FileDataSource.Factory()).createMediaSource(MediaItem.fromUri(File(path).toUri()))
+    private fun local(path: String, metadata: MediaMetadata? = null): MediaSource {
+        val item = MediaItem.Builder().setUri(File(path).toUri()).apply { metadata?.let(::setMediaMetadata) }.build()
+        return ProgressiveMediaSource.Factory(FileDataSource.Factory()).createMediaSource(item)
+    }
+
+    private fun metadata(plan: PlaybackPlan.Local) = MediaMetadata.Builder()
+        .setTitle(plan.title)
+        .setArtist(plan.channelName.ifBlank { null })
+        .setArtworkUri(plan.artworkPath?.let { File(it).toUri() })
+        .build()
 
     private fun authorized(plan: PlaybackPlan.Manifest): DataSource.Factory {
         if (plan.authHeaders.isEmpty() && plan.hostRewrites.isEmpty()) return http

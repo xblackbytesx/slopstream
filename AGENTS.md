@@ -278,7 +278,7 @@ A new service is a new JVM module implementing `ContentSource`, registered in
     keeps a copy on this device for offline viewing (disposable, per device, never synced);
     Archive (next, server side) keeps a permanent copy on the sync server so a video survives
     its deletion. Code names `download` and `vault`, so neither clashes with `ChannelArchive`.
-    Download is built for YouTube; Floatplane and Sauce+ (encrypted HLS) come later.
+    Download is built for YouTube; Floatplane and Sauce+ followed (decision 26).
     - `ContentSource.downloadOffer` / `downloadStream`, `SourceCapabilities.canDownload`. Only
       whole-file (progressive) adaptive streams, each with its exact size (`clen`). The sheet
       lists every resolution the device decodes, best first and preselected, ignoring the
@@ -303,6 +303,36 @@ A new service is a new JVM module implementing `ContentSource`, registered in
     - Refuses a download that would leave under 200 MB free.
     - `make smoke` checks the offer (exact sizes), a 10 MB range, the last range and a renewed
       URL against a live 4K upload.
+
+25. **Audio only, played like a podcast** (2026-10-29): the Download sheet's last choice is
+    "Audio only" (the best original audio track; `download.videoFile` null, schema 7).
+    - It plays from the device as `PlaybackPlan.Local` without a video path: the thumbnail
+      as artwork, controls that stay up, the screen allowed to sleep, no picture-in-picture.
+      Progress and resume are the usual watch state, so they sync like any video.
+    - Background playback: `BackgroundAudio` puts a Media3 `MediaSession` on the player
+      screen's own ExoPlayer and `PlaybackService` (a `MediaSessionService`, type
+      mediaPlayback) publishes it; Media3 shows the media notification and lock-screen
+      controls and keeps the service in the foreground while it plays. Only audio-only
+      plays use it; videos keep picture-in-picture. Leaving the player (Back) ends it, as
+      with any video: there is no mini player.
+    - More, "Watch the video" streams the video from the same position; a retry or 403
+      recovery keeps streaming instead of falling back to the download.
+
+26. **Floatplane and Sauce+ downloads** (2026-10-29): not the encrypted HLS the player
+    streams, but the website's own Download button: `delivery/info` with
+    `scenario=download` lists one plain MP4 per quality (picture and sound in one file, URL
+    token only, per the community spec), so `RangeFetcher` fetches it with Range headers
+    like any file. Unverified live until `make smoke-floatplane` reports on it (the report
+    probes the first and last 64 KB of the smallest file, its type and its `ftyp` box).
+    - `DownloadOffer.audio` null means each file carries its sound; a download is then one
+      file (`download.audioFile` null, schema 8) and plays as is. Sizes are estimates from the
+      bitrates. A stream id is `<attachment>:<variant>`: renewing a URL is one delivery call,
+      and an offer is two (post, delivery), within the endpoint's rate limit.
+    - Audio only there: the smallest file, then `TransformerAudioExtractor` (Media3
+      Transformer with the video removed) copies its AAC track into an `.m4a` without
+      re-encoding, and the MP4 goes. If that fails the whole file is kept under that name and
+      plays with the video track disabled (`PlayerEngine` turns video off for every
+      audio-only plan). `DownloadEntity.extractsAudio` marks such a row.
 
 ## Invariants
 
@@ -366,8 +396,8 @@ keep only the TeamNewPipe entries it adds, then `make smoke`. Check NewPipe's
 5. Archive on the server (decision 24, phase 2): yt-dlp in the server image (pinned, opt-in
    self-update), files in `/data/vault`, an Archive list on the website, playback from the
    server so a video plays after YouTube deleted it (order: this device, the server, the
-   service). The Save sheet then offers both. Later: auto-archive chosen channels;
-   Floatplane and Sauce+ downloads.
+   service). The Save sheet then offers both. Later: auto-archive chosen channels.
+   Next for downloads: a mini player for audio-only plays, so Back keeps them going.
 6. Sauce+. Checked 2026-10-23: www.sauceplus.com serves the same frontend build as
    Floatplane with a branding config, so the same API and website sign-in apply; the
    session cookie is named `__Host-sp-sess` there instead of `sails.sid`. Differences in that config: its own accounts (Keycloak realm `sauceplus`,

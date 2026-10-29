@@ -97,7 +97,14 @@ object FloatplaneMapping {
     }
 
     /** A playable variant: its stream URL and what the selector needs to rank it. */
-    data class Variant(val candidate: VideoCandidate, val url: String, val label: String)
+    data class Variant(val candidate: VideoCandidate, val url: String, val label: String, val audioBitrate: Long? = null)
+
+    /** The creator of a post (its id and name), from the post's creator object. */
+    fun creatorOf(post: PostDetailDto): Pair<String, String>? {
+        val c = post.creator as? JsonObject ?: return null
+        val id = c["id"]?.jsonPrimitive?.contentOrNull ?: return null
+        return id to (c["title"]?.jsonPrimitive?.contentOrNull ?: "")
+    }
 
     fun variants(delivery: DeliveryDto): List<Variant> = delivery.groups.flatMap { group ->
         group.variants
@@ -117,6 +124,7 @@ object FloatplaneMapping {
                     ),
                     url = origin.trimEnd('/') + v.url,
                     label = v.label,
+                    audioBitrate = v.meta.audio?.bitrate?.average,
                 )
             }
     }

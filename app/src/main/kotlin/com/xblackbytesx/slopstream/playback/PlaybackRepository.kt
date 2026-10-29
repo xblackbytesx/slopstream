@@ -39,8 +39,9 @@ class PlaybackRepository @Inject constructor(
         if (sources[source].capabilities.prefetchPlayback && !downloads.isDone(source, videoId)) start(source, videoId)
     }
 
-    suspend fun resolve(source: String, videoId: String): PlaybackPlan {
-        downloads.localPlan(source, videoId)?.let { return it }
+    /** [preferLocal] false streams even a downloaded video (the video of an audio download). */
+    suspend fun resolve(source: String, videoId: String, preferLocal: Boolean = true): PlaybackPlan {
+        if (preferLocal) downloads.localPlan(source, videoId)?.let { return it }
         val d = start(source, videoId)
         return try {
             d.await()

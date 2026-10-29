@@ -61,6 +61,8 @@ class PlayerEngine(
     private val settings: Settings,
     loop: Boolean = false,
 ) {
+    private val appContext = context.applicationContext
+
     private val trackSelector = DefaultTrackSelector(context).apply {
         parameters = buildUponParameters().setForceHighestSupportedBitrate(true).build()
     }
@@ -82,6 +84,9 @@ class PlayerEngine(
     /** Position saves must outlive [scope]: the last one happens while the screen is torn down. */
     private val persistScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var loadJob: Job? = null
+
+    /** What the last [load] asked for, kept by a retry or a recovery. */
+    private var preferLocal = true
     private var lastRecoveryAt = 0L
 
     init {
@@ -115,7 +120,7 @@ class PlayerEngine(
                 if (expired && now - lastRecoveryAt > 60_000 && s.source != null && s.videoId != null) {
                     lastRecoveryAt = now
                     playback.invalidate()
-                    load(s.source, s.videoId, startAtMs = player.currentPosition)
+                    load(s.source, s.videoId, startAtMs = player.currentPosition, preferLocal = preferLocal)
                 } else {
                     _state.update { it.copy(error = error.localizedMessage ?: "Playback failed (${error.errorCodeName})") }
                 }
@@ -129,19 +134,28 @@ class PlayerEngine(
         }
     }
 
-    /** Plays [videoId]; [startAtMs] null means "resume where the user left off". */
-    fun load(source: String, videoId: String, startAtMs: Long? = null) {
+    /**
+     * Plays [videoId]; [startAtMs] null means "resume where the user left off". A download plays
+     * from the device unless [preferLocal] is false.
+     */
+    fun load(source: String, videoId: String, startAtMs: Long? = null, preferLocal: Boolean = true) {
         if (_state.value.videoId != videoId) saveNow()
+        this.preferLocal = preferLocal
         loadJob?.cancel()
         _state.value = EngineState(source = source, videoId = videoId, resolving = true)
         loadJob = scope.launch {
             try {
-                val plan = playback.resolve(source, videoId)
+                val plan = playback.resolve(source, videoId, preferLocal)
                 val start = startAtMs ?: watch.resumePositionMs(source, videoId)
                 applyCapForManifests(plan)
+                // An audio-only file taken whole from a video keeps its picture track: skip it.
+                val audioOnly = (plan as? PlaybackPlan.Local)?.audioOnly == true
+                trackSelector.parameters = trackSelector.buildUponParameters().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, audioOnly).build()
                 player.setMediaSource(mediaSources.build(plan), start)
                 player.prepare()
                 player.playWhenReady = true
+                // Audio alone plays on in the background (decision 25); a video never does.
+                if ((plan as? PlaybackPlan.Local)?.audioOnly == true) BackgroundAudio.start(appContext, player) else BackgroundAudio.stop(appContext, player)
                 _state.update { it.copy(resolving = false, plan = plan) }
                 if (plan.durationSec > 0) feed.rememberDuration(source, videoId, plan.durationSec)
             } catch (e: CancellationException) {
@@ -152,11 +166,17 @@ class PlayerEngine(
         }
     }
 
+    /** From an audio-only download to the video, streamed, at the same position. */
+    fun streamVideo() {
+        val s = _state.value
+        if (s.source != null && s.videoId != null) load(s.source, s.videoId, startAtMs = player.currentPosition, preferLocal = false)
+    }
+
     fun retry() {
         val s = _state.value
         if (s.source != null && s.videoId != null) {
             playback.invalidate()
-            load(s.source, s.videoId, startAtMs = player.currentPosition.takeIf { it > 0 })
+            load(s.source, s.videoId, startAtMs = player.currentPosition.takeIf { it > 0 }, preferLocal = preferLocal)
         }
     }
 
@@ -213,6 +233,7 @@ class PlayerEngine(
 
     fun release() {
         saveNow()
+        BackgroundAudio.stop(appContext, player)
         player.release()
     }
 }

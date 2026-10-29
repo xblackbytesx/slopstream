@@ -182,6 +182,18 @@ class FloatplaneSmokeTest {
             .onSuccess { d -> printDelivery(d); findings += "fmp4 variants=" + FloatplaneMapping.variants(d).joinToString { "${it.label}/${it.candidate.codecs}" } }
             .onFailure { println("  failed: $it"); findings += "fmp4: $it" }
 
+        // Downloads (decision 26): the website's Download button. Plain MP4s, and do ranges work?
+        Thread.sleep(31_000)
+        section("Delivery download (MP4 files)")
+        runCatching { api.delivery("download", attachment.id) }
+            .onSuccess { d ->
+                printDelivery(d)
+                val files = FloatplaneMapping.variants(d)
+                findings += "download variants=" + files.joinToString { "${it.label}/${it.candidate.width}x${it.candidate.height}/audio ${it.audioBitrate}" }
+                files.minByOrNull { it.candidate.height }?.let { probeDownload(it, attachment.duration, findings) }
+            }
+            .onFailure { println("  failed: $it"); findings += "download delivery: $it" }
+
         creators.firstOrNull { it.liveStream != null }?.let { c ->
             Thread.sleep(31_000)
             section("Delivery live (${c.title}, ${Instant.now()})")
@@ -347,6 +359,27 @@ class FloatplaneSmokeTest {
         val ts = clear.size > 376 && clear[0] == 0x47.toByte() && clear[188] == 0x47.toByte() && clear[376] == 0x47.toByte()
         println("  decrypted ${clear.size} bytes: MPEG-TS sync bytes ${if (ts) "present" else "MISSING"}")
         findings += "AES decryption with that key: ${if (ts) "valid MPEG-TS" else "NOT TS (wrong key/IV?)"}"
+    }
+
+    /**
+     * The first and last 64 KB of a download file, with no credentials: status, type, the
+     * whole size from Content-Range (against the bitrate estimate), and whether it is an MP4
+     * that starts with `ftyp` (not encrypted, not a playlist). Bytes are never printed.
+     */
+    private fun probeDownload(v: FloatplaneMapping.Variant, durationSec: Double, findings: MutableList<String>) {
+        fun range(from: Long, to: Long) = client.newCall(
+            Request.Builder().url(v.url).header("User-Agent", Floatplane.USER_AGENT).header("Range", "bytes=$from-$to").build(),
+        ).execute().use { r -> Triple(r.code, r.headers, r.body.bytes()) }
+        val (code, headers, bytes) = range(0, 65_535)
+        val total = headers["Content-Range"]?.substringAfter('/')?.toLongOrNull()
+        val box = bytes.copyOfRange(4, minOf(8, bytes.size)).decodeToString()
+        val estimate = ((v.candidate.bitrate + (v.audioBitrate ?: 0)) * durationSec / 8).toLong()
+        println("  ${v.label}: HTTP $code type=${headers["Content-Type"]} range=${headers["Content-Range"]} ${bytes.size} bytes, box '$box', estimate $estimate")
+        findings += "download file ${v.label}: HTTP $code, ${headers["Content-Type"]}, first box '$box', size $total (estimate $estimate), ranges=${code == 206}"
+        if (total != null && total > 65_536) {
+            val (endCode, _, end) = range(total - 65_536, total - 1)
+            findings += "download file end: HTTP $endCode, ${end.size} bytes"
+        }
     }
 
     /** Offline or live: does the livestream playlist itself answer? */

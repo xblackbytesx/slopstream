@@ -1,13 +1,11 @@
 package com.xblackbytesx.slopstream.data.download
 
-import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -73,8 +71,8 @@ class DownloadWorker @AssistedInject constructor(
 
     /** One quiet line once the queue is empty: what is ready to watch offline. */
     private suspend fun notifyFinished() {
-        val allowed = ContextCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        if (!allowed) return
+        // Covers the Android 13+ permission and a user who turned the app's notifications off.
+        if (!NotificationManagerCompat.from(applicationContext).areNotificationsEnabled()) return
         val done = downloads.finishedSince(startedAt)
         if (done.isEmpty()) return
         val text = if (done.size == 1) done.single().title else "${done.size} videos"

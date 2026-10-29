@@ -273,6 +273,37 @@ class FloatplaneSourceTest {
     }
 
     @Test
+    fun downloadsAreTheMp4sOfTheDownloadScenarioBestFirst() = runTest {
+        routes["/api/v3/content/post"] = ok("post_download.json")
+        routes["/api/v3/delivery/info"] = ok("delivery_download.json")
+        val s = source()
+
+        val offer = s.downloadOffer("postD", shield, PlaybackPrefs(QualityCap.P720))
+        val delivery = seen.single { it.url.encodedPath == "/api/v3/delivery/info" }.url
+        assertEquals("download", delivery.queryParameter("scenario"))
+        assertEquals("vidD", delivery.queryParameter("entityId"))
+        // The cap is for streaming; the 4K file is not in the plan (disabled), so it is not offered.
+        assertEquals(listOf("vidD:1080-avc1", "vidD:360-avc1"), offer.videos.map { it.id })
+        val best = offer.videos.first()
+        assertEquals("https://edge01.example/Videos/vidD/1080.mp4?token=TOKEN", best.url)
+        assertEquals("mp4", best.extension)
+        assertFalse(best.sizeExact)
+        assertEquals((4_000_000L + 96_000) * 600 / 8, best.sizeBytes)
+        // Sound is in every file: no separate audio, and audio only comes out of the smallest.
+        assertNull(offer.audio)
+        assertEquals("vidD:360-avc1", offer.audioSource!!.id)
+        assertEquals(96_000L * 600 / 8, offer.audioOnlySize)
+        assertEquals("Creator A", offer.channelName)
+        assertEquals("creatorA", offer.channelId)
+        assertEquals("https://pbs.example/thumb_640.jpeg", offer.thumbnailUrl)
+        assertEquals(600L, offer.durationSec)
+
+        val again = s.downloadStream("postD", "vidD:360-avc1")
+        assertEquals("https://edge01.example/Videos/vidD/360.mp4?token=TOKEN", again.url)
+        assertEquals("vidD", seen.last { it.url.encodedPath == "/api/v3/delivery/info" }.url.queryParameter("entityId"))
+    }
+
+    @Test
     fun aLivestreamHasNoComments() = runTest {
         val page = source().comments(FloatplaneMapping.liveId("creatorA"))
         assertTrue(page.disabled && page.comments.isEmpty())

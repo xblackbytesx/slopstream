@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,7 +22,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,13 +54,13 @@ import com.xblackbytesx.slopstream.ui.components.ListRow
 import com.xblackbytesx.slopstream.ui.theme.LocalIsTv
 import com.xblackbytesx.slopstream.ui.theme.Palette
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.Locale
+import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.util.Locale
-import javax.inject.Inject
 
 /** Every download's state by [Downloads.key], for the tile badges. Provided at the app root. */
 val LocalDownloadStates = compositionLocalOf<Map<String, DownloadState>> { emptyMap() }
@@ -123,7 +126,8 @@ class DownloadActions @Inject constructor(private val downloads: Downloads) : Vi
         }
     }
 
-    fun pick(stream: DownloadStream) {
+    /** [stream] null: the audio alone. */
+    fun pick(stream: DownloadStream?) {
         val s = _sheet.value ?: return
         val offer = s.offer ?: return
         _sheet.value = s.copy(starting = true)
@@ -172,18 +176,25 @@ fun DownloadSheetHost(actions: DownloadActions) {
                 else -> {
                     Text("${bytes(s.free)} free on this device", style = MaterialTheme.typography.labelMedium, color = Palette.TextFaint, modifier = Modifier.padding(bottom = 6.dp))
                     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val choose = { v: DownloadStream? ->
+                            if (needsAsk) ask.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            actions.pick(v)
+                        }
                         offer.videos.forEachIndexed { i, v ->
-                            ListRow(
-                                modifier = if (i == 0) Modifier.focusRequester(first) else Modifier,
-                                onClick = {
-                                    if (needsAsk) ask.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                    actions.pick(v)
-                                },
-                            ) {
+                            ListRow(modifier = if (i == 0) Modifier.focusRequester(first) else Modifier, onClick = { choose(v) }) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(v.video?.label.orEmpty(), modifier = Modifier.weight(1f), color = if (i == 0) Palette.Accent else Palette.Text)
                                     Text(size(v, offer.audio), style = MaterialTheme.typography.labelMedium, color = Palette.TextDim)
                                 }
+                            }
+                        }
+                        // Plays like a podcast: in the background, with the screen off.
+                        ListRow(onClick = { choose(null) }) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Filled.Headphones, null, tint = Palette.TextDim, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Audio only", modifier = Modifier.weight(1f))
+                                Text(offer.audioOnlySize?.let { (if (offer.audio?.sizeExact == true) "" else "~") + bytes(it) }.orEmpty(), style = MaterialTheme.typography.labelMedium, color = Palette.TextDim)
                             }
                         }
                     }
@@ -195,9 +206,9 @@ fun DownloadSheetHost(actions: DownloadActions) {
 }
 
 /** "412 MB", or "~412 MB" when part of it is estimated from the bitrate. */
-private fun size(video: DownloadStream, audio: DownloadStream): String {
-    val total = (video.sizeBytes ?: return "") + (audio.sizeBytes ?: 0)
-    return (if (video.sizeExact && audio.sizeExact) "" else "~") + bytes(total)
+private fun size(video: DownloadStream, audio: DownloadStream?): String {
+    val total = (video.sizeBytes ?: return "") + (audio?.sizeBytes ?: 0)
+    return (if (video.sizeExact && audio?.sizeExact != false) "" else "~") + bytes(total)
 }
 
 /** 1.2 GB, 412 MB, 900 KB. */

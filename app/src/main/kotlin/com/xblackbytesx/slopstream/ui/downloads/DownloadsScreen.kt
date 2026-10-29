@@ -42,7 +42,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import coil3.compose.AsyncImage
-import com.xblackbytesx.slopstream.core.playback.VideoCandidate
 import com.xblackbytesx.slopstream.data.db.DownloadEntity
 import com.xblackbytesx.slopstream.data.db.DownloadState
 import com.xblackbytesx.slopstream.data.download.Downloads
@@ -138,7 +137,7 @@ private fun DownloadRow(item: DownloadItem, onOpen: () -> Unit, onDelete: () -> 
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(r.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(r.channelName, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim, maxLines = 1)
-                val quality = VideoCandidate(r.videoStreamId, r.codecs, r.width, r.height, r.fps, 0, r.hdr).label
+                val quality = Downloads.quality(r)?.label ?: "Audio only"
                 val line = when (state) {
                     DownloadState.DONE -> "$quality · ${bytes(r.sizeBytes)} · ${formatDuration(r.durationSec)}"
                     DownloadState.QUEUED -> r.error ?: "Waiting · $quality"

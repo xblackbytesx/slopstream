@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 /** Schema history lives in app/schemas/; every bump is an AutoMigration checked against it. */
 @Database(
     entities = [SubscriptionEntity::class, FeedItemEntity::class, WatchStateEntity::class, WatchLaterEntity::class, DownloadEntity::class],
-    version = 6,
+    version = 8,
     exportSchema = true,
     autoMigrations = [
         // 2: subscription.favorite
@@ -20,6 +20,10 @@ import androidx.room.RoomDatabase
         AutoMigration(from = 4, to = 5),
         // 6: download (videos saved on this device, decision 24)
         AutoMigration(from = 5, to = 6),
+        // 7: download.videoStreamId and videoFile nullable (audio-only downloads)
+        AutoMigration(from = 6, to = 7),
+        // 8: download.audioStreamId and audioFile nullable (Floatplane's one-file downloads)
+        AutoMigration(from = 7, to = 8),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

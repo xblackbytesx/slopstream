@@ -146,12 +146,17 @@ data class DownloadEntity(
     val channelName: String,
     val durationSec: Long,
     val thumbnailUrl: String?,
-    /** The service's stream ids, to renew an expired URL. */
-    val videoStreamId: String,
-    val audioStreamId: String,
-    val videoFile: String,
-    val audioFile: String,
-    /** The video stream as the player's quality label shows it. */
+    /**
+     * The service's stream ids, to renew an expired URL, and the files they become. Both: the
+     * two files YouTube serves. Video alone: one file with its sound (Floatplane). Audio file
+     * alone: audio only, from [audioStreamId], or when that is null taken out of the
+     * [videoStreamId] file ([extractsAudio]).
+     */
+    val videoStreamId: String?,
+    val audioStreamId: String?,
+    val videoFile: String?,
+    val audioFile: String?,
+    /** The video stream as the player's quality label shows it; empty and 0 for audio only. */
     val codecs: String,
     val width: Int,
     val height: Int,
@@ -168,3 +173,6 @@ data class DownloadEntity(
 )
 
 enum class DownloadState { QUEUED, RUNNING, DONE, FAILED }
+
+/** Audio only from a file with picture and sound: fetched whole, then its sound kept. */
+val DownloadEntity.extractsAudio: Boolean get() = videoFile == null && audioStreamId == null && videoStreamId != null
