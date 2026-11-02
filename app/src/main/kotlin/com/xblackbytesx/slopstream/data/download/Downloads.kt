@@ -67,6 +67,8 @@ class Downloads(
     private val scheduler: DownloadScheduler,
     private val extractor: AudioExtractor,
     private val fetcher: RangeFetcher = RangeFetcher(client),
+    /** Where [states] is kept up to date; for the app's life. */
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
     @Inject constructor(
         @ApplicationContext context: Context,
@@ -81,8 +83,6 @@ class Downloads(
         (context.getExternalFilesDir(null) ?: context.filesDir).resolve("downloads"),
         dao, sources, settings, clock, client, scheduler, extractor,
     )
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** The download being fetched right now, by [key], so removing it stops it. */
     private val running = ConcurrentHashMap<String, Job>()

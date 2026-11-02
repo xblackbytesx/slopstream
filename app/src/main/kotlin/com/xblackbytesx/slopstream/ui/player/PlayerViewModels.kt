@@ -5,12 +5,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
+import com.xblackbytesx.slopstream.core.VideoKind
 import com.xblackbytesx.slopstream.data.AppSettings
 import com.xblackbytesx.slopstream.data.FeedRepository
 import com.xblackbytesx.slopstream.data.Settings
 import com.xblackbytesx.slopstream.data.Sources
 import com.xblackbytesx.slopstream.data.WatchRepository
 import com.xblackbytesx.slopstream.data.db.VideoRow
+import com.xblackbytesx.slopstream.playback.AudioPlayback
 import com.xblackbytesx.slopstream.playback.MediaSources
 import com.xblackbytesx.slopstream.playback.PlaybackRepository
 import com.xblackbytesx.slopstream.playback.PlayerEngine
@@ -36,9 +38,14 @@ class PlayerViewModel @Inject constructor(
     feed: FeedRepository,
     settings: Settings,
     sources: Sources,
+    private val audio: AudioPlayback,
 ) : AndroidViewModel(app) {
     val route: PlayerRoute = savedState.toRoute()
-    val engine = PlayerEngine(app, viewModelScope, playback, mediaSources, watch, feed, settings)
+
+    /** The mini player's engine when it plays this very video: it carries on, no reload. */
+    private val reclaimed = audio.reclaim(route.source, route.videoId)
+
+    val engine = reclaimed ?: PlayerEngine(app, playback, mediaSources, watch, feed, settings).also { audio.stop() }
     val settings: StateFlow<AppSettings?> = settings.settings.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** This video's comments, loaded only when the panel opens (decision 20). Null: none here. */
@@ -46,10 +53,13 @@ class PlayerViewModel @Inject constructor(
         ?.let { CommentsLoader(it, route.videoId, viewModelScope) }
 
     init {
-        engine.load(route.source, route.videoId)
+        if (reclaimed == null) engine.load(route.source, route.videoId)
     }
 
-    override fun onCleared() = engine.release()
+    /** Leaving an audio-only play hands it to the mini player instead of ending it. */
+    override fun onCleared() {
+        if (engine.audioOnly && engine.state.value.error == null) audio.adopt(engine) else engine.release()
+    }
 }
 
 @HiltViewModel
@@ -61,9 +71,10 @@ class ShortsPlayerViewModel @Inject constructor(
     watch: WatchRepository,
     private val feed: FeedRepository,
     settings: Settings,
+    audio: AudioPlayback,
 ) : AndroidViewModel(app) {
     private val route: ShortsPlayerRoute = savedState.toRoute()
-    val engine = PlayerEngine(app, viewModelScope, playback, mediaSources, watch, feed, settings, loop = true)
+    val engine = PlayerEngine(app, playback, mediaSources, watch, feed, settings, loop = true).also { audio.stop() }
 
     private val _items = MutableStateFlow<List<VideoRow>?>(null)
     val items: StateFlow<List<VideoRow>?> = _items.asStateFlow()
@@ -72,9 +83,17 @@ class ShortsPlayerViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            val list = feed.shortsList(route.source)
-            startIndex = list.indexOfFirst { it.remoteId == route.videoId }.coerceAtLeast(0)
-            _items.value = list
+            val list = feed.shortsList(route.source, route.channelId)
+            val start = list.indexOfFirst { it.remoteId == route.videoId }
+            // A Short outside the list (a shared link, an older one, an unfollowed channel)
+            // plays first and the list follows; never another Short in its place.
+            if (start >= 0) {
+                startIndex = start
+                _items.value = list
+            } else {
+                startIndex = 0
+                _items.value = listOf(feed.row(route.source, route.videoId) ?: placeholder(route.source, route.videoId)) + list
+            }
         }
     }
 
@@ -88,4 +107,11 @@ class ShortsPlayerViewModel @Inject constructor(
     }
 
     override fun onCleared() = engine.release()
+
+    private fun placeholder(source: String, videoId: String) = VideoRow(
+        source = source, remoteId = videoId, channelId = "", channelName = "", title = "",
+        publishedAt = 0, kind = VideoKind.SHORT.name, thumbnailUrl = null, durationSec = null,
+        dateApproximate = false, dateUnknown = true, positionMs = null, watchDurationMs = null,
+        watched = null, inWatchLater = false,
+    )
 }

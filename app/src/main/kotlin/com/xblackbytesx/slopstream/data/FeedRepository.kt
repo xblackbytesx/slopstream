@@ -74,7 +74,11 @@ class FeedRepository @Inject constructor(
     fun channel(source: String, channelId: String, kinds: List<VideoKind>): Flow<PagingData<VideoRow>> =
         Pager(pagingConfig) { feedDao.pageChannel(source, channelId, kinds.map { it.name }) }.flow
 
-    suspend fun shortsList(source: String, limit: Int = 300): List<VideoRow> = feedDao.shorts(source, limit)
+    /** What the Shorts player swipes through: the Shorts feed, or one channel's Shorts. */
+    suspend fun shortsList(source: String, channelId: String? = null, limit: Int = 300): List<VideoRow> =
+        if (channelId != null) feedDao.channelShorts(source, channelId) else feedDao.shorts(source, limit)
+
+    suspend fun row(source: String, remoteId: String): VideoRow? = feedDao.row(source, remoteId)
 
     /** Videos of one service already in the library whose title or channel matches, newest first. */
     suspend fun searchLibrary(source: SourceKey, query: String): List<VideoRow> {

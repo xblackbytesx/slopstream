@@ -75,6 +75,8 @@ import com.xblackbytesx.slopstream.ui.feed.ListNav
 import com.xblackbytesx.slopstream.ui.feed.ShortsScreen
 import com.xblackbytesx.slopstream.ui.feed.VideosScreen
 import com.xblackbytesx.slopstream.ui.feed.WatchLaterScreen
+import com.xblackbytesx.slopstream.ui.player.MiniPlayer
+import com.xblackbytesx.slopstream.ui.player.MiniPlayerViewModel
 import com.xblackbytesx.slopstream.ui.player.PlayerScreen
 import com.xblackbytesx.slopstream.ui.player.ShortsPlayerScreen
 import com.xblackbytesx.slopstream.ui.search.SearchNav
@@ -101,8 +103,11 @@ private val TOP_LEVEL = listOf(
     TopLevel(SettingsRoute, SettingsRoute::class, "Settings", Icons.Filled.Settings),
 )
 
-fun NavHostController.play(row: VideoRow) {
-    if (row.kind == VideoKind.SHORT.name) navigate(ShortsPlayerRoute(row.source, row.remoteId))
+/** [fromChannel]: a Short opened on its channel's page swipes through that channel's Shorts. */
+fun NavHostController.play(row: VideoRow, fromChannel: Boolean = false) {
+    if (row.kind == VideoKind.SHORT.name) {
+        navigate(ShortsPlayerRoute(row.source, row.remoteId, row.channelId.takeIf { fromChannel }))
+    }
     else navigate(PlayerRoute(row.source, row.remoteId, row.title, row.channelName))
 }
 
@@ -119,9 +124,11 @@ fun AppNav(
     enterPip: () -> Unit,
     chrome: ChromeViewModel = hiltViewModel(),
     downloads: DownloadActions = hiltViewModel(),
+    mini: MiniPlayerViewModel = hiltViewModel(),
 ) {
     val entry by nav.currentBackStackEntryAsState()
     val downloadStates by downloads.states.collectAsStateWithLifecycle()
+    val miniEngine by mini.current.collectAsStateWithLifecycle()
     val destination = entry?.destination
     val current = TOP_LEVEL.firstOrNull { t -> destination?.hasRoute(t.type) == true }
     val service by chrome.service.collectAsStateWithLifecycle()
@@ -194,7 +201,9 @@ fun AppNav(
             composable<SyncConnectRoute> { SyncConnectScreen(onDone = { nav.popBackStack() }) }
             composable<AddChannelRoute> { AddChannelScreen() }
             composable<ImportRoute> { ImportScreen() }
-            composable<ChannelRoute> { ChannelScreen(listNav, onUnsubscribed = { nav.popBackStack() }) }
+            composable<ChannelRoute> {
+                ChannelScreen(listNav.copy(play = { nav.play(it, fromChannel = true) }), onUnsubscribed = { nav.popBackStack() })
+            }
             composable<PlayerRoute> { PlayerScreen(onBack = { nav.popBackStack() }, enterPip = enterPip) }
             composable<ShortsPlayerRoute> { ShortsPlayerScreen(onBack = { nav.popBackStack() }, enterPip = enterPip) }
             composable<DeviceCheckRoute> { e ->
@@ -214,6 +223,15 @@ fun AppNav(
             onSelect = { goTop(TOP_LEVEL[it]) },
             hasShorts = hasShorts,
             showNav = showChrome,
+            miniPlayer = {
+                miniEngine?.let { engine ->
+                    MiniPlayer(
+                        engine,
+                        onOpen = { source, videoId, title, channel -> nav.navigate(PlayerRoute(source, videoId, title, channel)) },
+                        onClose = mini::close,
+                    )
+                }
+            },
             content = host,
         )
     }
@@ -231,6 +249,8 @@ fun AppChrome(
     onSelect: (Int) -> Unit,
     hasShorts: Boolean = true,
     showNav: Boolean = true,
+    /** The mini player, under the screens and over the bottom bar; shown with the navigation. */
+    miniPlayer: @Composable () -> Unit = {},
     content: @Composable (Modifier) -> Unit,
 ) {
     val selected = TOP_LEVEL.getOrNull(current)
@@ -238,7 +258,10 @@ fun AppChrome(
     if (LocalIsTv.current) {
         Row(Modifier.fillMaxSize().background(Palette.Background)) {
             if (showNav) TvRail(shown, selected) { onSelect(TOP_LEVEL.indexOf(it)) }
-            content(Modifier.weight(1f).fillMaxHeight())
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                content(Modifier.weight(1f).fillMaxWidth())
+                if (showNav) miniPlayer()
+            }
         }
     } else {
         Scaffold(
@@ -246,22 +269,25 @@ fun AppChrome(
             // The player draws edge to edge; the list screens keep clear of the system bars.
             contentWindowInsets = if (showNav) ScaffoldDefaults.contentWindowInsets else WindowInsets(0),
             bottomBar = {
-                if (showNav) NavigationBar(containerColor = Palette.Surface) {
-                    shown.forEach { t ->
-                        if (t.tvOnly) return@forEach
-                        NavigationBarItem(
-                            selected = t == selected,
-                            onClick = { onSelect(TOP_LEVEL.indexOf(t)) },
-                            icon = { Icon(t.icon, null) },
-                            label = { Text(t.label, maxLines = 1) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = Palette.OnAccent,
-                                indicatorColor = Palette.Accent,
-                                selectedTextColor = Palette.Text,
-                                unselectedIconColor = Palette.TextDim,
-                                unselectedTextColor = Palette.TextDim,
-                            ),
-                        )
+                if (showNav) Column {
+                    miniPlayer()
+                    NavigationBar(containerColor = Palette.Surface) {
+                        shown.forEach { t ->
+                            if (t.tvOnly) return@forEach
+                            NavigationBarItem(
+                                selected = t == selected,
+                                onClick = { onSelect(TOP_LEVEL.indexOf(t)) },
+                                icon = { Icon(t.icon, null) },
+                                label = { Text(t.label, maxLines = 1) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = Palette.OnAccent,
+                                    indicatorColor = Palette.Accent,
+                                    selectedTextColor = Palette.Text,
+                                    unselectedIconColor = Palette.TextDim,
+                                    unselectedTextColor = Palette.TextDim,
+                                ),
+                            )
+                        }
                     }
                 }
             },

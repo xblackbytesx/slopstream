@@ -13,6 +13,7 @@ import com.xblackbytesx.slopstream.data.Settings
 import com.xblackbytesx.slopstream.data.Sources
 import com.xblackbytesx.slopstream.data.db.AppDatabase
 import com.xblackbytesx.slopstream.data.db.DownloadState
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
@@ -85,9 +86,10 @@ class DownloadsTest {
         audio = DownloadStream("251", audio, "webm", 7_000, sizeExact = true),
     )
 
-    private fun downloads(dir: File = tmp.root) = Downloads(
+    /** Within the test's own scope, so nothing reads the database after it closes. */
+    private fun TestScope.downloads(dir: File = tmp.root) = Downloads(
         dir, db.downloads(), Sources(source), Settings(ApplicationProvider.getApplicationContext()), clock, OkHttpClient(),
-        DownloadScheduler { kicks++ }, { input, output -> extractor.extract(input, output) }, RangeFetcher(OkHttpClient(), chunkBytes = 8_000),
+        DownloadScheduler { kicks++ }, { input, output -> extractor.extract(input, output) }, RangeFetcher(OkHttpClient(), chunkBytes = 8_000), backgroundScope,
     )
 
     private suspend fun queued(d: Downloads) {

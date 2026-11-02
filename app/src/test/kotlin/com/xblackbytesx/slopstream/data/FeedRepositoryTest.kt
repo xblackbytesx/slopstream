@@ -87,6 +87,20 @@ class FeedRepositoryTest {
     }
 
     @Test
+    fun aChannelsShortsListIsThatChannelsOwnNotTheFeeds() = runTest {
+        subscribe("A", "B")
+        source.feeds["A"] = { feed("A", item("as1", "A", "2026-10-21T10:00:00Z", VideoKind.SHORT), item("as2", "A", "2026-10-19T10:00:00Z", VideoKind.SHORT)) }
+        source.feeds["B"] = { feed("B", item("bs1", "B", "2026-10-22T10:00:00Z", VideoKind.SHORT), item("b1", "B", "2026-10-20T10:00:00Z")) }
+
+        repo.refreshAll()
+
+        assertEquals(listOf("bs1", "as1", "as2"), repo.shortsList("yt").map { it.remoteId })
+        assertEquals(listOf("as1", "as2"), repo.shortsList("yt", channelId = "A").map { it.remoteId })
+        assertEquals("A", repo.row("yt", "as2")?.channelId)
+        assertNull(repo.row("yt", "missing"))
+    }
+
+    @Test
     fun aFailedRefreshKeepsTheLastGoodCopy() = runTest {
         subscribe("A")
         source.feeds["A"] = { feed("A", item("a1", "A", "2026-10-20T10:00:00Z")) }

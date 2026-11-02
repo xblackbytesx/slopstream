@@ -22,6 +22,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -48,12 +49,13 @@ data class EngineState(
 /**
  * One ExoPlayer and the bookkeeping around it: resolve, resume where you left off, save the
  * position every few seconds and on every pause, mark watched, and recover once from an
- * expired stream URL (HTTP 403) by resolving again at the same position.
+ * expired stream URL (HTTP 403) by resolving again at the same position. It owns its scope,
+ * so an audio-only play can outlive its screen in the mini player ([AudioPlayback]); [release]
+ * ends both.
  */
 @OptIn(UnstableApi::class)
 class PlayerEngine(
     context: Context,
-    private val scope: CoroutineScope,
     private val playback: PlaybackRepository,
     private val mediaSources: MediaSources,
     private val watch: WatchRepository,
@@ -62,6 +64,8 @@ class PlayerEngine(
     loop: Boolean = false,
 ) {
     private val appContext = context.applicationContext
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var released = false
 
     private val trackSelector = DefaultTrackSelector(context).apply {
         parameters = buildUponParameters().setForceHighestSupportedBitrate(true).build()
@@ -231,9 +235,15 @@ class PlayerEngine(
         persistScope.launch { watch.savePosition(source, id, position, duration, ended) }
     }
 
+    /** A download played as audio alone: what the mini player keeps going. */
+    val audioOnly: Boolean get() = (_state.value.plan as? PlaybackPlan.Local)?.audioOnly == true
+
     fun release() {
+        if (released) return
+        released = true
         saveNow()
         BackgroundAudio.stop(appContext, player)
+        scope.cancel()
         player.release()
     }
 }

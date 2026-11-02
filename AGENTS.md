@@ -313,8 +313,8 @@ A new service is a new JVM module implementing `ContentSource`, registered in
       screen's own ExoPlayer and `PlaybackService` (a `MediaSessionService`, type
       mediaPlayback) publishes it; Media3 shows the media notification and lock-screen
       controls and keeps the service in the foreground while it plays. Only audio-only
-      plays use it; videos keep picture-in-picture. Leaving the player (Back) ends it, as
-      with any video: there is no mini player.
+      plays use it; videos keep picture-in-picture. Leaving the player (Back) hands the play
+      to the mini player (decision 27).
     - More, "Watch the video" streams the video from the same position; a retry or 403
       recovery keeps streaming instead of falling back to the download.
 
@@ -333,6 +333,17 @@ A new service is a new JVM module implementing `ContentSource`, registered in
       re-encoding, and the MP4 goes. If that fails the whole file is kept under that name and
       plays with the video track disabled (`PlayerEngine` turns video off for every
       audio-only plan). `DownloadEntity.extractsAudio` marks such a row.
+
+27. **Mini player for audio-only plays** (2026-10-29; videos keep picture-in-picture, the
+    user's call). `PlayerEngine` owns its scope, so it can outlive its screen. Leaving the
+    player during an audio-only play (Back, or the app closing) hands the engine to
+    `AudioPlayback` (a singleton) instead of releasing it; the media session and background
+    service carry on unchanged. `MiniPlayer` shows it above the bottom bar (phones) or under
+    the screens (TV): artwork, title, a progress line, play/pause, close.
+    - Selecting it opens `PlayerRoute`, whose view model reclaims the same engine (same
+      service and video id): no reload, no restart.
+    - Any other play (a video, a Short, another download) stops it first; close saves the
+      position like any player does and ends the notification.
 
 ## Invariants
 
@@ -397,7 +408,6 @@ keep only the TeamNewPipe entries it adds, then `make smoke`. Check NewPipe's
    self-update), files in `/data/vault`, an Archive list on the website, playback from the
    server so a video plays after YouTube deleted it (order: this device, the server, the
    service). The Save sheet then offers both. Later: auto-archive chosen channels.
-   Next for downloads: a mini player for audio-only plays, so Back keeps them going.
 6. Sauce+. Checked 2026-10-23: www.sauceplus.com serves the same frontend build as
    Floatplane with a branding config, so the same API and website sign-in apply; the
    session cookie is named `__Host-sp-sess` there instead of `sails.sid`. Differences in that config: its own accounts (Keycloak realm `sauceplus`,

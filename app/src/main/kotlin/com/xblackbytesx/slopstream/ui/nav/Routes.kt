@@ -25,5 +25,8 @@ import kotlinx.serialization.Serializable
 /** A video's comments (decision 20); [title] names it in the header. */
 @Serializable data class CommentsRoute(val source: String, val videoId: String, val title: String = "")
 
-/** The Shorts player pages through the Shorts feed starting at [videoId]. */
-@Serializable data class ShortsPlayerRoute(val source: String, val videoId: String)
+/**
+ * The Shorts player pages through the Shorts feed starting at [videoId], or through one
+ * channel's Shorts when opened from that channel's page ([channelId]).
+ */
+@Serializable data class ShortsPlayerRoute(val source: String, val videoId: String, val channelId: String? = null)

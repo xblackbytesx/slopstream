@@ -114,6 +114,30 @@ interface FeedDao {
     )
     suspend fun shorts(source: String, limit: Int): List<VideoRow>
 
+    /** One channel's Shorts in the order of its channel page ([pageChannel]), older loads included. */
+    @Query(
+        """
+        SELECT $VIDEO_ROW_COLUMNS
+        FROM feed_item f
+        LEFT JOIN watch_state w ON w.source = f.source AND w.remoteId = f.remoteId AND w.deletedAt IS NULL
+        LEFT JOIN watch_later l ON l.source = f.source AND l.remoteId = f.remoteId
+        WHERE f.source = :source AND f.channelId = :channelId AND f.kind = 'SHORT'
+        ORDER BY f.publishedAt DESC, f.remoteId
+        """,
+    )
+    suspend fun channelShorts(source: String, channelId: String): List<VideoRow>
+
+    @Query(
+        """
+        SELECT $VIDEO_ROW_COLUMNS
+        FROM feed_item f
+        LEFT JOIN watch_state w ON w.source = f.source AND w.remoteId = f.remoteId AND w.deletedAt IS NULL
+        LEFT JOIN watch_later l ON l.source = f.source AND l.remoteId = f.remoteId
+        WHERE f.source = :source AND f.remoteId = :remoteId
+        """,
+    )
+    suspend fun row(source: String, remoteId: String): VideoRow?
+
     @Query("SELECT * FROM feed_item WHERE source = :source AND remoteId = :remoteId")
     suspend fun get(source: String, remoteId: String): FeedItemEntity?
 
