@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Comment
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.HighQuality
@@ -93,9 +94,11 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
+import com.xblackbytesx.slopstream.core.VideoKind
 import com.xblackbytesx.slopstream.core.playback.PlaybackPlan
 import com.xblackbytesx.slopstream.core.playback.chosenQuality
 import com.xblackbytesx.slopstream.core.playback.qualityOptions
+import com.xblackbytesx.slopstream.data.remote.RemoteItem
 import com.xblackbytesx.slopstream.playback.EngineState
 import com.xblackbytesx.slopstream.playback.FrameRateMatcher
 import com.xblackbytesx.slopstream.playback.PlayerEngine
@@ -110,6 +113,7 @@ import com.xblackbytesx.slopstream.ui.components.formatPosition
 import com.xblackbytesx.slopstream.ui.downloads.DownloadActions
 import com.xblackbytesx.slopstream.ui.downloads.DownloadMenu
 import com.xblackbytesx.slopstream.ui.downloads.DownloadSheetHost
+import com.xblackbytesx.slopstream.ui.remote.PlayOnRequest
 import com.xblackbytesx.slopstream.ui.theme.LocalIsTv
 import com.xblackbytesx.slopstream.ui.theme.Palette
 import java.io.File
@@ -119,6 +123,8 @@ import kotlinx.coroutines.delay
 fun PlayerScreen(
     onBack: () -> Unit,
     enterPip: () -> Unit,
+    /** Null without a sync server: Play on TV under More (decision 28). */
+    onPlayOn: ((PlayOnRequest) -> Unit)? = null,
     vm: PlayerViewModel = hiltViewModel(),
     downloads: DownloadActions = hiltViewModel(),
 ) {
@@ -131,6 +137,23 @@ fun PlayerScreen(
     val download = remember(downloadStates, live, title) {
         if (live) null else downloads.menu(vm.route.source, vm.route.videoId, title)
     }
+    // Stop on the sender's remote closes a video sent to this TV.
+    vm.remote?.let { link -> LaunchedEffect(link) { link.stop.collect { onBack() } } }
+    // Carries on there from here; not for a video this TV was sent itself.
+    val playOn = onPlayOn?.takeIf { vm.route.remote == null }?.let { send ->
+        {
+            val player = vm.engine.player
+            player.pause()
+            val item = RemoteItem(
+                source = vm.route.source,
+                videoId = vm.route.videoId,
+                title = state.plan?.title ?: vm.route.title,
+                channelName = vm.route.channelName,
+                kind = if (live) VideoKind.LIVE.name else null,
+            )
+            send(PlayOnRequest(item, startMs = if (live) 0 else player.currentPosition, fromPlayer = true))
+        }
+    }
     PlayerChrome(
         engine = vm.engine,
         state = state,
@@ -141,6 +164,7 @@ fun PlayerScreen(
         enterPip = enterPip,
         comments = vm.comments.takeIf { settings?.showComments == true },
         download = download,
+        onPlayOn = playOn,
     )
     DownloadSheetHost(downloads)
 }
@@ -169,6 +193,8 @@ fun PlayerChrome(
     comments: CommentsLoader? = null,
     /** Non-null: Download (or cancel, remove) under More. */
     download: DownloadMenu? = null,
+    /** Non-null: Play on TV under More (decision 28). */
+    onPlayOn: (() -> Unit)? = null,
 ) {
     val isTv = LocalIsTv.current
     var showComments by remember { mutableStateOf(false) }
@@ -282,7 +308,7 @@ fun PlayerChrome(
                     onTogglePlay = ::togglePlay,
                     onSeek = ::seekBy,
                     onQuality = { showQuality = true },
-                    onMore = if (comments != null || download != null || audioOnly) ({ showMore = true }) else null,
+                    onMore = if (comments != null || download != null || audioOnly || onPlayOn != null) ({ showMore = true }) else null,
                     onPip = if (!isTv) enterPip else null,
                     onInteract = ::poke,
                     compact = portraitShorts,
@@ -323,6 +349,7 @@ fun PlayerChrome(
             onComments = comments?.let { c -> { c.start(); showComments = true } },
             download = download,
             onWatchVideo = if (audioOnly) engine::streamVideo else null,
+            onPlayOn = onPlayOn,
             onDismiss = { showMore = false },
         )
     }
@@ -550,9 +577,15 @@ private fun SeekBar(position: Long, buffered: Long, duration: Long, onSeekTo: (L
     )
 }
 
-/** What the player keeps out of its control row: comments and downloading. */
+/** What the player keeps out of its control row: comments, downloading and playing on a TV. */
 @Composable
-private fun MoreDialog(onComments: (() -> Unit)?, download: DownloadMenu?, onWatchVideo: (() -> Unit)?, onDismiss: () -> Unit) {
+private fun MoreDialog(
+    onComments: (() -> Unit)?,
+    download: DownloadMenu?,
+    onWatchVideo: (() -> Unit)?,
+    onPlayOn: (() -> Unit)?,
+    onDismiss: () -> Unit,
+) {
     val first = remember { FocusRequester() }
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -562,6 +595,7 @@ private fun MoreDialog(onComments: (() -> Unit)?, download: DownloadMenu?, onWat
             // The first item takes focus (TV).
             val items = listOfNotNull(
                 onWatchVideo?.let { Triple(Icons.Filled.OndemandVideo, "Watch the video (streams it)", it) },
+                onPlayOn?.let { Triple(Icons.Filled.Cast, "Play on TV…", it) },
                 onComments?.let { Triple(Icons.AutoMirrored.Filled.Comment, "Comments", it) },
                 download?.let { Triple(it.icon, it.label, it.onClick) },
             )

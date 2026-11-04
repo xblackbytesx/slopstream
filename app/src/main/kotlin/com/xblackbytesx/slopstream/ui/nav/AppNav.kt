@@ -62,6 +62,14 @@ import com.xblackbytesx.slopstream.data.ServiceState
 import com.xblackbytesx.slopstream.data.Services
 import com.xblackbytesx.slopstream.ui.accounts.SignInScreen
 import dagger.hilt.android.lifecycle.HiltViewModel
+import com.xblackbytesx.slopstream.data.remote.RemoteCommand
+import com.xblackbytesx.slopstream.data.remote.RemoteReceiver
+import com.xblackbytesx.slopstream.ui.remote.PlayOnDialog
+import com.xblackbytesx.slopstream.ui.remote.PlayOnRequest
+import com.xblackbytesx.slopstream.ui.remote.PlayOnViewModel
+import com.xblackbytesx.slopstream.ui.remote.RemoteScreen
+import com.xblackbytesx.slopstream.ui.remote.toRemoteItem
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import javax.inject.Inject
 import com.xblackbytesx.slopstream.data.db.VideoRow
@@ -111,10 +119,14 @@ fun NavHostController.play(row: VideoRow, fromChannel: Boolean = false) {
     else navigate(PlayerRoute(row.source, row.remoteId, row.title, row.channelName))
 }
 
-/** What the chrome needs from the service shown: Floatplane has no Shorts screen. */
+/**
+ * What the chrome needs from the service shown (Floatplane has no Shorts screen), and on a TV
+ * the videos sent to it from another device (decision 28).
+ */
 @HiltViewModel
-class ChromeViewModel @Inject constructor(services: Services) : ViewModel() {
+class ChromeViewModel @Inject constructor(services: Services, receiver: RemoteReceiver) : ViewModel() {
     val service: StateFlow<ServiceState> = services.state
+    val remotePlays: Flow<RemoteCommand> = receiver.plays
 }
 
 @Composable
@@ -125,6 +137,7 @@ fun AppNav(
     chrome: ChromeViewModel = hiltViewModel(),
     downloads: DownloadActions = hiltViewModel(),
     mini: MiniPlayerViewModel = hiltViewModel(),
+    playOnVm: PlayOnViewModel = hiltViewModel(),
 ) {
     val entry by nav.currentBackStackEntryAsState()
     val downloadStates by downloads.states.collectAsStateWithLifecycle()
@@ -133,6 +146,9 @@ fun AppNav(
     val current = TOP_LEVEL.firstOrNull { t -> destination?.hasRoute(t.type) == true }
     val service by chrome.service.collectAsStateWithLifecycle()
     val hasShorts = service.capabilities.hasShorts
+    val canPlayOn by playOnVm.available.collectAsStateWithLifecycle()
+    var playOn by remember { mutableStateOf<PlayOnRequest?>(null) }
+    val sendRow: ((VideoRow) -> Unit)? = if (canPlayOn) ({ row -> playOn = PlayOnRequest(row.toRemoteItem()) }) else null
     val showChrome = destination != null && listOf(
         PlayerRoute::class, ShortsPlayerRoute::class, DeviceCheckRoute::class,
     ).none { destination.hasRoute(it) }
@@ -148,6 +164,16 @@ fun AppNav(
         if (!hasShorts && current?.route == ShortsRoute) goTop(TOP_LEVEL.first { it.route == VideosRoute })
     }
 
+    // A video sent to this TV: its player, in place of one already open.
+    LaunchedEffect(Unit) {
+        chrome.remotePlays.collect { c ->
+            val i = c.item ?: return@collect
+            nav.navigate(PlayerRoute(i.source, i.videoId, i.title, i.channelName, remote = c.session, startMs = c.positionMs ?: 0, guest = c.guest)) {
+                popUpTo<PlayerRoute> { inclusive = true }
+            }
+        }
+    }
+
     val signIn: (SourceKey) -> Unit = { nav.navigate(SignInRoute(it.id)) }
     val listNav = ListNav(
         play = { nav.play(it) },
@@ -159,6 +185,7 @@ fun AppNav(
         downloads = { nav.navigate(DownloadsRoute) },
         comments = { nav.navigate(CommentsRoute(it.source, it.remoteId, it.title)) },
         signIn = signIn,
+        playOn = sendRow,
     )
 
     val host: @Composable (Modifier) -> Unit = { modifier ->
@@ -172,6 +199,7 @@ fun AppNav(
                         openSubscription = { nav.navigate(ChannelRoute(it.source, it.remoteId, it.name)) },
                         signIn = signIn,
                         comments = listNav.comments,
+                        playOn = sendRow,
                     ),
                 )
             }
@@ -204,7 +232,10 @@ fun AppNav(
             composable<ChannelRoute> {
                 ChannelScreen(listNav.copy(play = { nav.play(it, fromChannel = true) }), onUnsubscribed = { nav.popBackStack() })
             }
-            composable<PlayerRoute> { PlayerScreen(onBack = { nav.popBackStack() }, enterPip = enterPip) }
+            composable<PlayerRoute> {
+                PlayerScreen(onBack = { nav.popBackStack() }, enterPip = enterPip, onPlayOn = if (canPlayOn) ({ playOn = it }) else null)
+            }
+            composable<RemoteRoute> { RemoteScreen(onBack = { nav.popBackStack() }) }
             composable<ShortsPlayerRoute> { ShortsPlayerScreen(onBack = { nav.popBackStack() }, enterPip = enterPip) }
             composable<DeviceCheckRoute> { e ->
                 val firstRun = e.toRoute<DeviceCheckRoute>().firstRun
@@ -233,6 +264,24 @@ fun AppNav(
                 }
             },
             content = host,
+        )
+    }
+
+    playOn?.let { request ->
+        PlayOnDialog(
+            request = request,
+            vm = playOnVm,
+            onDismiss = { playOn = null },
+            onSent = { target ->
+                playOn = null
+                // Sent from the player: it carries on there, so this one closes.
+                if (request.fromPlayer) nav.popBackStack()
+                nav.navigate(RemoteRoute(target.id, target.name))
+            },
+            onRemote = { target ->
+                playOn = null
+                nav.navigate(RemoteRoute(target.id, target.name))
+            },
         )
     }
 }

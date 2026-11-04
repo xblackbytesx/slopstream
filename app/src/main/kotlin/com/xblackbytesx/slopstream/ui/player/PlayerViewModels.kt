@@ -12,10 +12,12 @@ import com.xblackbytesx.slopstream.data.Settings
 import com.xblackbytesx.slopstream.data.Sources
 import com.xblackbytesx.slopstream.data.WatchRepository
 import com.xblackbytesx.slopstream.data.db.VideoRow
+import com.xblackbytesx.slopstream.data.remote.RemoteReceiver
 import com.xblackbytesx.slopstream.playback.AudioPlayback
 import com.xblackbytesx.slopstream.playback.MediaSources
 import com.xblackbytesx.slopstream.playback.PlaybackRepository
 import com.xblackbytesx.slopstream.playback.PlayerEngine
+import com.xblackbytesx.slopstream.playback.RemoteSessionLink
 import com.xblackbytesx.slopstream.ui.comments.CommentsLoader
 import com.xblackbytesx.slopstream.ui.nav.PlayerRoute
 import com.xblackbytesx.slopstream.ui.nav.ShortsPlayerRoute
@@ -39,13 +41,21 @@ class PlayerViewModel @Inject constructor(
     settings: Settings,
     sources: Sources,
     private val audio: AudioPlayback,
+    receiver: RemoteReceiver,
 ) : AndroidViewModel(app) {
     val route: PlayerRoute = savedState.toRoute()
 
-    /** The mini player's engine when it plays this very video: it carries on, no reload. */
-    private val reclaimed = audio.reclaim(route.source, route.videoId)
+    /**
+     * The mini player's engine when it plays this very video: it carries on, no reload. Never
+     * for a video sent to this TV, which starts where its sender is.
+     */
+    private val reclaimed = if (route.remote == null) audio.reclaim(route.source, route.videoId) else null
 
-    val engine = reclaimed ?: PlayerEngine(app, playback, mediaSources, watch, feed, settings).also { audio.stop() }
+    val engine = reclaimed
+        ?: PlayerEngine(app, playback, mediaSources, watch, feed, settings, saveProgress = !route.guest).also { audio.stop() }
+
+    /** Sent from another device (decision 28): reports to it and takes its remote. */
+    val remote: RemoteSessionLink? = route.remote?.let { RemoteSessionLink(engine, receiver, it, viewModelScope) }
     val settings: StateFlow<AppSettings?> = settings.settings.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** This video's comments, loaded only when the panel opens (decision 20). Null: none here. */
@@ -53,12 +63,13 @@ class PlayerViewModel @Inject constructor(
         ?.let { CommentsLoader(it, route.videoId, viewModelScope) }
 
     init {
-        if (reclaimed == null) engine.load(route.source, route.videoId)
+        if (reclaimed == null) engine.load(route.source, route.videoId, startAtMs = route.startMs.takeIf { it >= 0 })
     }
 
     /** Leaving an audio-only play hands it to the mini player instead of ending it. */
     override fun onCleared() {
-        if (engine.audioOnly && engine.state.value.error == null) audio.adopt(engine) else engine.release()
+        remote?.close()
+        if (remote == null && engine.audioOnly && engine.state.value.error == null) audio.adopt(engine) else engine.release()
     }
 }
 

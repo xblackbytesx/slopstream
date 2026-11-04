@@ -32,7 +32,8 @@ for phones, tablets and TVs (Android 11+, including the NVIDIA Shield and Google
 - Import from NewPipe (subscriptions JSON or database zip) or Google Takeout
   (`subscriptions.csv`). On a TV, the import screen shows an address to open from your
   phone.
-- Optional [sync server](#sync-server-optional) for one library per person across devices.
+- Optional [sync server](#sync-server-optional) for one library per person across devices,
+  and to send a video from your phone to the TV and use the phone as its remote.
 
 ## Install
 
@@ -65,6 +66,9 @@ every person in the house gets one library across their devices: subscriptions a
 favorites, Watch later, progress and history, and their own Floatplane and Sauce+ sign-ins
 (sign in once, on any device). The server also fetches the video lists all day, so a TV shows
 a fresh grid the moment it is switched on, and changes reach an open app within seconds.
+With a server, "Play on TV…" (in a video's menu or the player's More) sends a video to a TV
+that has Slopstream open, and the phone becomes its remote. Set a TV to Everyone on the
+server's Devices page to let the whole house send to it; each person's progress stays theirs.
 Connect in Settings, Sync server: the TV shows a code to type on the server's website.
 Without a server the app works on its own.
 

@@ -43,6 +43,7 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.xblackbytesx.slopstream.core.SourceKey
+import com.xblackbytesx.slopstream.core.VideoKind
 import com.xblackbytesx.slopstream.data.ArchiveState
 import com.xblackbytesx.slopstream.data.RefreshState
 import com.xblackbytesx.slopstream.data.db.VideoRow
@@ -76,6 +77,8 @@ data class ListNav(
     val history: () -> Unit = {},
     val downloads: () -> Unit = {},
     val comments: (VideoRow) -> Unit = {},
+    /** Null without a sync server (decision 28). */
+    val playOn: ((VideoRow) -> Unit)? = null,
 )
 
 @Composable
@@ -352,6 +355,7 @@ private fun VideoListScreen(
                 openChannel = if (showChannel) ({ nav.openChannel(row) }) else null,
                 comments = if (commentsGate.offers(row.source)) ({ nav.comments(row) }) else null,
                 download = downloads.menu(row.source, row.remoteId, row.title),
+                playOn = nav.playOn?.takeIf { row.kind != VideoKind.SHORT.name }?.let { send -> { send(row) } },
             ),
             onDismiss = { menuFor = null },
         )

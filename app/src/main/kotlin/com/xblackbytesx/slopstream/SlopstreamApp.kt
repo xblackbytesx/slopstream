@@ -13,6 +13,7 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
 import com.xblackbytesx.slopstream.data.RefreshWorker
 import com.xblackbytesx.slopstream.data.Settings
+import com.xblackbytesx.slopstream.data.remote.RemoteReceiver
 import com.xblackbytesx.slopstream.data.sync.Durations
 import com.xblackbytesx.slopstream.data.sync.SyncScheduler
 import dagger.hilt.android.HiltAndroidApp
@@ -33,6 +34,7 @@ class SlopstreamApp : Application(), Configuration.Provider, SingletonImageLoade
     @Inject lateinit var settings: Settings
     @Inject lateinit var sync: SyncScheduler
     @Inject lateinit var durations: Durations
+    @Inject lateinit var remote: RemoteReceiver
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -49,6 +51,8 @@ class SlopstreamApp : Application(), Configuration.Provider, SingletonImageLoade
         // Does nothing until a sync server is connected (Settings).
         sync.start()
         durations.start(appScope)
+        // TVs only, and only with a sync server: videos sent from a phone (decision 28).
+        remote.start()
     }
 
     /** Thumbnails through the shared client, 250 MB on disk: a TV grid scrolls fast. */

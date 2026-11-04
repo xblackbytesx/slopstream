@@ -137,6 +137,9 @@ class SyncEngine @Inject constructor(
         }
     }
 
+    /** Playing on a TV goes through the connected server; null when there is none. */
+    suspend fun remote(): RemoteApi? = api() as? RemoteApi
+
     private suspend fun api(): SyncApi? {
         val server = store.current().server ?: return null
         val token = withContext(Dispatchers.IO) { store.token() } ?: return null

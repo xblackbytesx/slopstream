@@ -20,7 +20,22 @@ import kotlinx.serialization.Serializable
 /** Signing in to a service that needs an account; [source] is a SourceKey id (Floatplane). */
 @Serializable data class SignInRoute(val source: String)
 @Serializable data class ChannelRoute(val source: String, val channelId: String, val name: String)
-@Serializable data class PlayerRoute(val source: String, val videoId: String, val title: String = "", val channelName: String = "")
+/**
+ * [remote]: a session sent to this TV from another device (decision 28), starting at [startMs];
+ * [guest] when it came from someone else, whose library keeps its progress.
+ */
+@Serializable data class PlayerRoute(
+    val source: String,
+    val videoId: String,
+    val title: String = "",
+    val channelName: String = "",
+    val remote: String? = null,
+    val startMs: Long = -1,
+    val guest: Boolean = false,
+)
+
+/** The remote for what [target] (a TV) plays. */
+@Serializable data class RemoteRoute(val target: String, val name: String)
 
 /** A video's comments (decision 20); [title] names it in the header. */
 @Serializable data class CommentsRoute(val source: String, val videoId: String, val title: String = "")

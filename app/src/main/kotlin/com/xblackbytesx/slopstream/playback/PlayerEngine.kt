@@ -62,6 +62,8 @@ class PlayerEngine(
     private val feed: FeedRepository,
     private val settings: Settings,
     loop: Boolean = false,
+    /** False for a guest's video sent to this TV: its progress goes to the guest (decision 28). */
+    private val saveProgress: Boolean = true,
 ) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -226,6 +228,7 @@ class PlayerEngine(
     }
 
     fun saveNow(ended: Boolean = false) {
+        if (!saveProgress) return
         val s = _state.value
         val source = s.source ?: return
         val id = s.videoId ?: return

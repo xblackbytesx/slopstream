@@ -1,5 +1,15 @@
 package com.xblackbytesx.slopstream.data.sync
 
+import com.xblackbytesx.slopstream.data.remote.ControlRequest
+import com.xblackbytesx.slopstream.data.remote.PlayState
+import com.xblackbytesx.slopstream.data.remote.ReceiveAnswer
+import com.xblackbytesx.slopstream.data.remote.ReceiveRequest
+import com.xblackbytesx.slopstream.data.remote.RemoteAction
+import com.xblackbytesx.slopstream.data.remote.RemoteStatus
+import com.xblackbytesx.slopstream.data.remote.SendAnswer
+import com.xblackbytesx.slopstream.data.remote.SendRequest
+import com.xblackbytesx.slopstream.data.remote.StateReport
+import com.xblackbytesx.slopstream.data.remote.Targets
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -7,6 +17,7 @@ import kotlinx.serialization.json.JsonArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -95,5 +106,34 @@ class SyncContractTest {
         assertNull("plain http to the internet", SyncClient.parseServer("http://slop.example.com"))
         assertNull(SyncClient.parseServer("http://8.8.8.8"))
         assertNull(SyncClient.parseServer("not a url at all"))
+    }
+
+    @Test
+    fun playingOnATv() {
+        val commands = SyncJson.decodeFromString(ReceiveAnswer.serializer(), golden("remote_commands"))
+        val (play, seek) = commands.commands
+        assertEquals(RemoteAction.PLAY to 61_000L, play.action to play.positionMs)
+        assertEquals("dQw4w9WgXcQ", play.item?.videoId)
+        assertTrue(play.guest)
+        assertEquals(RemoteAction.SEEK to null, seek.action to seek.item)
+        sameJson(golden("remote_commands"), SyncJson.encodeToString(ReceiveAnswer.serializer(), commands))
+
+        // What the app sends reads as the server's own example.
+        val sent = listOf(
+            "remote_receive" to { t: String -> SyncJson.encodeToString(ReceiveRequest.serializer(), SyncJson.decodeFromString(ReceiveRequest.serializer(), t)) },
+            "remote_send" to { t: String -> SyncJson.encodeToString(SendRequest.serializer(), SyncJson.decodeFromString(SendRequest.serializer(), t)) },
+            "remote_control" to { t: String -> SyncJson.encodeToString(ControlRequest.serializer(), SyncJson.decodeFromString(ControlRequest.serializer(), t)) },
+            "remote_state" to { t: String -> SyncJson.encodeToString(StateReport.serializer(), SyncJson.decodeFromString(StateReport.serializer(), t)) },
+        )
+        sent.forEach { (name, roundTrip) -> golden(name).let { sameJson(it, roundTrip(it)) } }
+        assertEquals(PlayState.PAUSED, SyncJson.decodeFromString(StateReport.serializer(), golden("remote_state")).state)
+
+        val targets = SyncJson.decodeFromString(Targets.serializer(), golden("remote_targets")).targets
+        assertEquals("Living room TV", targets.single().name)
+        assertFalse(targets.single().own)
+        assertEquals(PlayState.PLAYING, targets.single().nowPlaying?.state)
+        val status = SyncJson.decodeFromString(RemoteStatus.serializer(), golden("remote_status"))
+        assertTrue(status.online && status.generation == 3L)
+        assertEquals("6f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f", SyncJson.decodeFromString(SendAnswer.serializer(), golden("remote_sent")).session)
     }
 }

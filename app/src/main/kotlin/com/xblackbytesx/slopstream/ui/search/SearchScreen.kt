@@ -70,6 +70,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xblackbytesx.slopstream.core.Channel
 import com.xblackbytesx.slopstream.core.SourceKey
+import com.xblackbytesx.slopstream.core.VideoKind
 import com.xblackbytesx.slopstream.data.db.SubscriptionEntity
 import com.xblackbytesx.slopstream.data.db.VideoRow
 import com.xblackbytesx.slopstream.ui.comments.CommentsGate
@@ -97,6 +98,8 @@ data class SearchNav(
     val openSubscription: (SubscriptionEntity) -> Unit,
     val signIn: (SourceKey) -> Unit = {},
     val comments: (VideoRow) -> Unit = {},
+    /** Null without a sync server (decision 28). */
+    val playOn: ((VideoRow) -> Unit)? = null,
 )
 
 /** What a result tile or row does; [SearchResults] is stateless so tests can render it. */
@@ -159,6 +162,7 @@ fun SearchScreen(nav: SearchNav, vm: SearchViewModel = hiltViewModel()) {
                 openChannel = if (global) null else ({ nav.openChannel(row) }),
                 comments = if (commentsGate.offers(row.source)) ({ nav.comments(row) }) else null,
                 download = downloads.menu(row.source, row.remoteId, row.title),
+                playOn = nav.playOn?.takeIf { row.kind != VideoKind.SHORT.name }?.let { send -> { send(row) } },
             ),
             onDismiss = { menuFor = null },
         )

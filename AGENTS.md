@@ -344,6 +344,27 @@ A new service is a new JVM module implementing `ContentSource`, registered in
       service and video id): no reload, no restart.
     - Any other play (a video, a Short, another download) stops it first; close saves the
       position like any player does and ends the notification.
+28. **Play on a TV** (2026-11-04, the user's call, server 0.4.0; the protocol is in the server's AGENTS.md,
+    "Playing on a TV"). With a sync server, any device sends a video to a TV that has
+    Slopstream open, then works as its remote. Relayed by the server; chosen over a LAN
+    protocol and Google Cast (Play Services, a web receiver that cannot run our player).
+    - **Who**: the TV's own person, and everyone in the house once its owner sets it to
+      Everyone on the server's Devices page. Anyone who may send may steer what plays.
+    - **TV side** (`data/remote/RemoteReceiver`): only on TVs, only in the foreground (v1: an
+      app in the background cannot open the player), a long-poll like `LongPoll`. It names
+      the services it can play (YouTube plus each signed-in one); the server refuses the
+      others by name. Going to the background tells the server at once. A play opens
+      `PlayerRoute` with `remote`/`startMs`/`guest`, replacing an open player;
+      `RemoteSessionLink` reports state (on change, every 5 s playing) and applies pause,
+      resume, seek and stop. No mini-player hand-over for these.
+    - **Progress**: own TV, the TV's library as usual. A guest's video: `PlayerEngine`
+      `saveProgress = false`, and the server writes the reports into the guest's library.
+      Floatplane and Sauce+ play with the TV's own sign-in (never lent between people).
+    - **Sender side** (`ui/remote/`): "Play on TV…" in the video menu (not Shorts) and the
+      player's More; it starts at the sender's resume position, or the player's position
+      (the player pauses and closes once the TV has it). Then `RemoteRoute`: artwork, a seek
+      bar moved on locally between reports, back/forward 10 s, play/pause, Stop. A TV that
+      plays something offers its remote from the same list.
 
 ## Invariants
 
@@ -403,7 +424,9 @@ keep only the TeamNewPipe entries it adds, then `make smoke`. Check NewPipe's
 4. Sync server: built 2026-10-23 (decision 18), server-fetched lists 2026-10-24 (decision 19,
    0.2.0), long-poll and durations 2026-10-24 (decision 21, 0.3.0). Next: premieres (an
    "upcoming" state with its start time on both sides); NewPipe history import; optional
-   server thumbnail proxy (server roadmap).
+   server thumbnail proxy (server roadmap). Play on a TV (decision 28): device testing;
+   later "always ready" (the TV waits in the background, the Display over other apps
+   permission granted over adb, as BSfreeTV does its Home switch).
 5. Archive on the server (decision 24, phase 2): yt-dlp in the server image (pinned, opt-in
    self-update), files in `/data/vault`, an Archive list on the website, playback from the
    server so a video plays after YouTube deleted it (order: this device, the server, the

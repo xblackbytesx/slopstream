@@ -1,5 +1,13 @@
 package com.xblackbytesx.slopstream.data.sync
 
+import com.xblackbytesx.slopstream.data.remote.ControlRequest
+import com.xblackbytesx.slopstream.data.remote.ReceiveAnswer
+import com.xblackbytesx.slopstream.data.remote.ReceiveRequest
+import com.xblackbytesx.slopstream.data.remote.RemoteStatus
+import com.xblackbytesx.slopstream.data.remote.SendAnswer
+import com.xblackbytesx.slopstream.data.remote.SendRequest
+import com.xblackbytesx.slopstream.data.remote.StateReport
+import com.xblackbytesx.slopstream.data.remote.Targets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
@@ -40,11 +48,25 @@ interface SyncApi {
     suspend fun changes(since: Long): ChangesAnswer
 }
 
+/** Playing on a TV (decision 28): the TV's side, then the sender's. */
+interface RemoteApi {
+    /** Long-poll for commands: answers within ~25 s, at once when some are waiting. */
+    suspend fun receive(request: ReceiveRequest): ReceiveAnswer
+    suspend fun offline()
+    suspend fun report(report: StateReport)
+    suspend fun targets(): Targets
+    suspend fun send(target: String, request: SendRequest): SendAnswer
+    suspend fun control(target: String, request: ControlRequest)
+
+    /** Long-poll on what [target] plays: at once when [since] is not its number. */
+    suspend fun status(target: String, since: Long?): RemoteStatus
+}
+
 /**
  * HTTP to a Slopstream server. The token goes only to [base], in the Authorization header;
  * nothing here is logged. [token] null: pairing only.
  */
-class SyncClient(private val http: OkHttpClient, private val base: HttpUrl, private val token: String? = null) : SyncApi {
+class SyncClient(private val http: OkHttpClient, private val base: HttpUrl, private val token: String? = null) : SyncApi, RemoteApi {
     override suspend fun sync(request: SyncRequest): SyncResponse =
         call("POST", "sync", body(SyncRequest.serializer(), request), SyncResponse.serializer())
 
@@ -73,7 +95,30 @@ class SyncClient(private val http: OkHttpClient, private val base: HttpUrl, priv
     override suspend fun changes(since: Long): ChangesAnswer =
         call("GET", if (since >= 0) "changes?since=$since" else "changes", null, ChangesAnswer.serializer(), waiting)
 
-    /** The long-poll is held up to ~25 s: a read timeout beyond that, for this call only. */
+    override suspend fun receive(request: ReceiveRequest): ReceiveAnswer =
+        call("POST", "remote/receive", body(ReceiveRequest.serializer(), request), ReceiveAnswer.serializer(), waiting)
+
+    override suspend fun offline() {
+        call<Unit>("POST", "remote/offline", null, null)
+    }
+
+    override suspend fun report(report: StateReport) {
+        call<Unit>("POST", "remote/state", body(StateReport.serializer(), report), null)
+    }
+
+    override suspend fun targets(): Targets = call("GET", "remote/targets", null, Targets.serializer())
+
+    override suspend fun send(target: String, request: SendRequest): SendAnswer =
+        call("POST", "remote/$target/play", body(SendRequest.serializer(), request), SendAnswer.serializer())
+
+    override suspend fun control(target: String, request: ControlRequest) {
+        call<Unit>("POST", "remote/$target/control", body(ControlRequest.serializer(), request), null)
+    }
+
+    override suspend fun status(target: String, since: Long?): RemoteStatus =
+        call("GET", if (since != null) "remote/$target/status?since=$since" else "remote/$target/status", null, RemoteStatus.serializer(), waiting)
+
+    /** The long-polls are held up to ~25 s: a read timeout beyond that, for those calls only. */
     private val waiting by lazy { http.newBuilder().readTimeout(40, TimeUnit.SECONDS).build() }
 
     suspend fun pairStart(deviceName: String): PairStarted =

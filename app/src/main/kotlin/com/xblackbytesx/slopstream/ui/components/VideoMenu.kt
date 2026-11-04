@@ -14,6 +14,7 @@ import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistRemove
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RemoveDone
@@ -47,6 +48,8 @@ data class VideoMenuActions(
     val comments: (() -> Unit)? = null,
     /** Null where the service has no downloads (decision 24). */
     val download: DownloadMenu? = null,
+    /** Null without a sync server, and for Shorts (decision 28). */
+    val playOn: (() -> Unit)? = null,
 )
 
 /** Long-press (or the remote's menu key) on a tile. */
@@ -67,6 +70,9 @@ fun VideoMenuDialog(row: VideoRow, actions: VideoMenuActions, onDismiss: () -> U
             Text(row.channelName, style = MaterialTheme.typography.bodySmall, color = Palette.TextDim)
             Spacer(Modifier.size(4.dp))
             MenuItem(Icons.Filled.PlayArrow, "Play", Modifier.focusRequester(first)) { onDismiss(); actions.play() }
+            actions.playOn?.let { send ->
+                MenuItem(Icons.Filled.Cast, "Play on TV…") { onDismiss(); send() }
+            }
             if (row.inWatchLater) {
                 MenuItem(Icons.Filled.PlaylistRemove, "Remove from Watch later") { onDismiss(); actions.toggleWatchLater() }
             } else {
