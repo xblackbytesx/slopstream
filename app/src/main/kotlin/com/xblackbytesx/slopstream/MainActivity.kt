@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
+import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -21,21 +22,28 @@ import androidx.lifecycle.viewModelScope
 import androidx.activity.viewModels
 import androidx.navigation.compose.rememberNavController
 import com.xblackbytesx.slopstream.core.SourceKey
+import com.xblackbytesx.slopstream.data.AppSettings
 import com.xblackbytesx.slopstream.data.FeedRepository
 import com.xblackbytesx.slopstream.data.Settings
 import com.xblackbytesx.slopstream.device.DeviceCheck
 import com.xblackbytesx.slopstream.playback.PlayerSession
+import com.xblackbytesx.slopstream.screensaver.Screensaver
 import com.xblackbytesx.slopstream.ui.nav.AddChannelRoute
 import com.xblackbytesx.slopstream.ui.nav.AppNav
 import com.xblackbytesx.slopstream.ui.nav.DeviceCheckRoute
 import com.xblackbytesx.slopstream.ui.nav.PlayerRoute
 import com.xblackbytesx.slopstream.ui.nav.ShortsPlayerRoute
 import com.xblackbytesx.slopstream.ui.nav.VideosRoute
+import com.xblackbytesx.slopstream.ui.screensaver.ScreensaverHost
 import com.xblackbytesx.slopstream.ui.theme.SlopstreamTheme
 import com.xblackbytesx.slopstream.youtube.YoutubeIds
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -49,6 +57,11 @@ class MainViewModel @Inject constructor(
     /** Null until settings are read; the splash screen stays up until then. */
     private val _start = MutableStateFlow<Any?>(null)
     val start: StateFlow<Any?> = _start.asStateFlow()
+
+    /** The screensaver timeout in milliseconds; 0 = Off. */
+    val screensaverMs: StateFlow<Long> = settings.settings
+        .map { it.screensaverMinutes * 60_000L }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppSettings.DEFAULT_SCREENSAVER_MINUTES * 60_000L)
 
     private val _shared = MutableStateFlow<Any?>(null)
     val shared: StateFlow<Any?> = _shared.asStateFlow()
@@ -96,6 +109,17 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) { vm.onForeground() }
         }
+        // Decision 29: a playing video (or one in picture-in-picture) holds the screensaver off.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                Screensaver.wake()
+                while (true) {
+                    val info = PlayerSession.info.value
+                    Screensaver.tick(vm.screensaverMs.value, heldOff = (info.active && info.playing) || PlayerSession.inPip.value)
+                    delay(1_000)
+                }
+            }
+        }
         if (!isTv && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -111,11 +135,24 @@ class MainActivity : ComponentActivity() {
                 val nav = rememberNavController()
                 val startRoute = start ?: return@SlopstreamTheme
                 AppNav(nav, startRoute, enterPip = ::enterPip)
+                ScreensaverHost()
                 LaunchedEffect(shared) {
                     shared?.let { nav.navigate(it); vm.consumeShared() }
                 }
             }
         }
+    }
+
+    /** Every key and touch that reaches the app's own window; dialogs are windows of their own. */
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        Screensaver.input()
+    }
+
+    /** Mouse, trackpad and game controller sticks. */
+    override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
+        Screensaver.input()
+        return super.dispatchGenericMotionEvent(ev)
     }
 
     override fun onNewIntent(intent: Intent) {

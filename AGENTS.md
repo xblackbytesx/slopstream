@@ -366,6 +366,33 @@ A new service is a new JVM module implementing `ContentSource`, registered in
       bar moved on locally between reports, back/forward 10 s, play/pause, Stop. A TV that
       plays something offers its remote from the same list.
 
+29. **Screensaver for OLED screens** (2026-11-08, the user's call). After a timeout without input
+    (Settings, Screen: 1, 3 (default), 5, 10 minutes or Off), anywhere in the app, a black
+    screen with the SLOP logo bouncing diagonally, changing color at each edge and flashing
+    white at a corner hit, like the old DVD players.
+    - **What holds it off**: only a video that plays (`PlayerSession` active and playing, or
+      picture-in-picture). Paused, ended, audio-only and the mini player do not; the count
+      starts again when a video stops playing. `IdleTimer` is the pure rule, `Screensaver` the
+      app's one instance, ticked each second by `MainActivity` while started.
+    - **Input**: `onUserInteraction` and generic motion on the activity's window, plus every
+      sender command on a TV played remotely (`RemoteSessionLink` wakes it). Keys pressed in
+      an open dialog are not seen (dialogs are windows of their own), an accepted gap.
+    - **The window**: a Compose `Dialog`, so it sits above any open menu; system bars hidden on
+      its own window, so the player's immersive mode is untouched. The waking key or touch is
+      swallowed whole (wake on key up / pointer up) so it never also clicks a tile; volume
+      keys pass through.
+    - **No wake lock of its own**: the system's own sleep and screensaver timeouts still apply
+      and win if shorter. The player now keeps the screen on only while a video plays,
+      resolves or rebuffers (it was on whenever the player was open, so a finished video's
+      controls stayed lit forever).
+    - **Corners** (`BounceField`): at 45 degrees a corner comes when the travel is a multiple of
+      both ranges; ranges are shrunk by up to 8 percent (black on black) so one comes every
+      4 to 12 minutes, the first not before a third of that. The logo is drawn to its ink
+      bounds (`SlopLogo`), so the corner hit touches the corner.
+    - **Logo**: SLOP in Anton (OFL 1.1, Impact is not redistributable), license text in
+      `assets/licenses/`. The real DVD Video logo was considered and rejected: it is a
+      licensed trademark (DVD Format/Logo Licensing Corporation), not for a public GPL app.
+
 ## Invariants
 
 - **No algorithmic content.** Feeds hold only subscribed channels; ordering is publish date

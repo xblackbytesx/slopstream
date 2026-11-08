@@ -94,6 +94,7 @@ class SettingsViewModel @Inject constructor(
     fun setMatchFrameRate(on: Boolean) = edit { setMatchFrameRate(on) }
     fun setRefresh(hours: Int) = edit { setRefreshHours(hours) }
     fun setComments(on: Boolean) = edit { setShowComments(on) }
+    fun setScreensaver(minutes: Int) = edit { setScreensaverMinutes(minutes) }
 }
 
 @Composable
@@ -157,6 +158,19 @@ fun SettingsScreen(
         }
         listOf(0 to "Only when the app opens", 1 to "Every hour", 3 to "Every 3 hours", 6 to "Every 6 hours", 12 to "Every 12 hours").forEach { (h, label) ->
             item(key = "refresh$h") { ChoiceRow(label, selected = settings.refreshHours == h) { vm.setRefresh(h) } }
+        }
+
+        item { Section("Screen") }
+        item {
+            Text("Screensaver", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp))
+            Text(
+                "A logo bouncing on black after this long without input, anywhere in the app. A playing video holds it off; " +
+                    "a paused or finished one does not. Protects OLED screens from burn-in. Any key or touch wakes it.",
+                style = MaterialTheme.typography.bodySmall, color = Palette.TextDim,
+            )
+        }
+        listOf(1 to "After 1 minute", 3 to "After 3 minutes", 5 to "After 5 minutes", 10 to "After 10 minutes", 0 to "Off").forEach { (m, label) ->
+            item(key = "screensaver$m") { ChoiceRow(label, selected = settings.screensaverMinutes == m) { vm.setScreensaver(m) } }
         }
 
         item { Section("Accounts") }

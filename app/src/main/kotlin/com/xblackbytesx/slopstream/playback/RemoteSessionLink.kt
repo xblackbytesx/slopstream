@@ -8,6 +8,7 @@ import com.xblackbytesx.slopstream.data.remote.RemoteAction
 import com.xblackbytesx.slopstream.data.remote.RemoteCommand
 import com.xblackbytesx.slopstream.data.remote.RemoteReceiver
 import com.xblackbytesx.slopstream.data.remote.StateReport
+import com.xblackbytesx.slopstream.screensaver.Screensaver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -47,6 +48,8 @@ class RemoteSessionLink(
     }
 
     private fun apply(c: RemoteCommand) {
+        // The sender's remote is input too: a seek while paused should be seen.
+        Screensaver.wake()
         val player = engine.player
         when (c.action) {
             RemoteAction.PAUSE -> player.pause()

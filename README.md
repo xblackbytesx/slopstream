@@ -29,6 +29,8 @@ for phones, tablets and TVs (Android 11+, including the NVIDIA Shield and Google
 - Search your library, or YouTube itself when you ask for it.
 - Comments on YouTube, Floatplane and Sauce+, if you turn them on: loaded only when you open
   them, never stored.
+- OLED-safe: after a few idle minutes (anywhere, including a paused or finished video) the
+  screen goes black with a bouncing logo, DVD-player style. It does hit the corner.
 - Import from NewPipe (subscriptions JSON or database zip) or Google Takeout
   (`subscriptions.csv`). On a TV, the import screen shows an address to open from your
   phone.
@@ -105,6 +107,9 @@ Built on:
   protobuf-javalite (BSD-3-Clause).
 - The PoToken code in `app/.../potoken/` and `po_token.html`, ported from
   [NewPipe](https://github.com/TeamNewPipe/NewPipe) (GPL-3.0-or-later).
+- [Anton](https://github.com/googlefonts/AntonFont) by The Anton Project Authors (SIL Open
+  Font License 1.1, shipped in the app as `assets/licenses/Anton-OFL.txt`) for the
+  screensaver logo.
 - AndroidX, Jetpack Compose, Media3 (ExoPlayer), Room, Hilt, OkHttp, Coil and kotlinx
   (Apache-2.0).
 

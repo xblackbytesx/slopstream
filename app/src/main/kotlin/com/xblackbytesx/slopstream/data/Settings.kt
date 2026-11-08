@@ -43,9 +43,15 @@ data class AppSettings(
     val service: SourceKey? = null,
     /** A Comments button in the player and the video menu (decision 20). Off by default. */
     val showComments: Boolean = false,
+    /** Minutes without input before the screensaver (decision 29); 0 = Off. */
+    val screensaverMinutes: Int = DEFAULT_SCREENSAVER_MINUTES,
 ) {
     val prefs: PlaybackPrefs get() = PlaybackPrefs(cap = cap, allowHdr = allowHdr)
     val effectiveProfile: DeviceProfile get() = profile ?: DeviceProfile.CONSERVATIVE
+
+    companion object {
+        const val DEFAULT_SCREENSAVER_MINUTES = 3
+    }
 }
 
 @Singleton
@@ -65,6 +71,7 @@ class Settings @Inject constructor(@ApplicationContext private val context: Cont
         val matchFrameRate = booleanPreferencesKey("match_frame_rate")
         val service = stringPreferencesKey("service")
         val showComments = booleanPreferencesKey("show_comments")
+        val screensaverMinutes = intPreferencesKey("screensaver_minutes")
     }
 
     val settings: Flow<AppSettings> = store.data.map { p ->
@@ -79,6 +86,7 @@ class Settings @Inject constructor(@ApplicationContext private val context: Cont
             matchFrameRate = p[Keys.matchFrameRate] ?: profile?.matchFrameRate ?: false,
             service = p[Keys.service]?.let { id -> SourceKey.entries.firstOrNull { it.id == id } },
             showComments = p[Keys.showComments] ?: false,
+            screensaverMinutes = p[Keys.screensaverMinutes] ?: AppSettings.DEFAULT_SCREENSAVER_MINUTES,
         )
     }
 
@@ -99,6 +107,7 @@ class Settings @Inject constructor(@ApplicationContext private val context: Cont
     suspend fun setMatchFrameRate(on: Boolean) = store.edit { it[Keys.matchFrameRate] = on }
     suspend fun setService(source: SourceKey) = store.edit { it[Keys.service] = source.id }
     suspend fun setShowComments(on: Boolean) = store.edit { it[Keys.showComments] = on }
+    suspend fun setScreensaverMinutes(minutes: Int) = store.edit { it[Keys.screensaverMinutes] = minutes }
 
     /** Stores a device check result; the cap follows the recommendation only on the first run. */
     suspend fun saveDeviceCheck(profile: DeviceProfile, recommended: QualityCap) = store.edit {

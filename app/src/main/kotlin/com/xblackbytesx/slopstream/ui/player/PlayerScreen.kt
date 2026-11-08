@@ -275,7 +275,9 @@ fun PlayerChrome(
             },
             update = {
                 it.player = player
-                it.keepScreenOn = !audioOnly
+                // Only while it plays (or is about to): a paused or finished video lets the
+                // screen sleep and the screensaver come (decision 29).
+                it.keepScreenOn = !audioOnly && (state.playing || state.resolving || (state.buffering && !state.ended))
             },
             onRelease = { it.player = null },
             modifier = Modifier.fillMaxSize(),

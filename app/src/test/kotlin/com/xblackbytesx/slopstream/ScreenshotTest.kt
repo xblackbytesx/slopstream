@@ -25,6 +25,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.graphics.Color
+import com.xblackbytesx.slopstream.ui.screensaver.BouncingLogo
+import kotlin.random.Random
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import com.xblackbytesx.slopstream.core.Channel
 import com.xblackbytesx.slopstream.core.SourceKey
@@ -133,6 +137,17 @@ class ScreenshotTest {
                 VideoGrid(items, noop)
             }
         }
+    }
+
+    /** Decision 29: mid-screen, and in the top-left corner at the moment it hits. */
+    @Test @Config(qualifiers = TV)
+    fun tvScreensaver() = shot("tv-screensaver", isTv = true) {
+        Box(Modifier.fillMaxSize().background(Color.Black)) { BouncingLogo(frozenAt = 900.0, random = Random(7)) }
+    }
+
+    @Test @Config(qualifiers = PHONE)
+    fun phoneScreensaver() = shot("phone-screensaver", isTv = false) {
+        Box(Modifier.fillMaxSize().background(Color.Black)) { BouncingLogo(frozenAt = 300.0, random = Random(7)) }
     }
 
     @Test @Config(qualifiers = TV)
