@@ -1,8 +1,10 @@
 package com.xblackbytesx.slopstream.ui.screensaver
 
 import android.graphics.Paint
+import android.graphics.drawable.ColorDrawable
 import android.graphics.Rect
 import android.graphics.Typeface
+import android.view.Gravity
 import android.view.ViewGroup
 import android.view.WindowManager
 import androidx.compose.animation.core.Animatable
@@ -65,11 +67,29 @@ import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlinx.coroutines.delay
 
-/** Shows the screensaver over everything, dialogs included, while [Screensaver.active]. */
+/**
+ * Shows the screensaver over everything, dialogs included, while [Screensaver.active]. Call it
+ * last at the root of the activity's content.
+ *
+ * Two layers, both black: one in the activity's own window, drawn over the player (which also
+ * covers its video surface), and the screensaver's window above that. The window alone left a
+ * strip of a paused video lit at the left edge on the Shield (2026-11-08): the dialog window is
+ * transparent and its content need not cover every pixel of it.
+ */
 @Composable
 fun ScreensaverHost() {
     val active by Screensaver.active.collectAsStateWithLifecycle()
-    if (active) ScreensaverWindow(onWake = Screensaver::wake)
+    if (active) {
+        Blackout()
+        ScreensaverWindow(onWake = Screensaver::wake)
+    }
+}
+
+@Composable
+internal fun Blackout() {
+    val fade = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { fade.animateTo(1f, tween(FADE_IN_MS)) }
+    Box(Modifier.fillMaxSize().graphicsLayer { alpha = fade.value }.background(Color.Black))
 }
 
 /**
@@ -87,10 +107,14 @@ private fun ScreensaverWindow(onWake: () -> Unit) {
         DisposableEffect(window) {
             window?.run {
                 setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                setGravity(Gravity.FILL)
                 clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
                 attributes = attributes.also {
                     it.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                    it.horizontalMargin = 0f
+                    it.verticalMargin = 0f
                 }
+                decorView.setPadding(0, 0, 0, 0)
                 WindowCompat.getInsetsController(this, decorView).run {
                     systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                     hide(WindowInsetsCompat.Type.systemBars())
@@ -103,6 +127,8 @@ private fun ScreensaverWindow(onWake: () -> Unit) {
         LaunchedEffect(Unit) {
             runCatching { focus.requestFocus() }
             fade.animateTo(1f, tween(FADE_IN_MS))
+            // Faded in: from here the window itself is black too, edge to edge.
+            window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.BLACK))
         }
         Box(
             Modifier

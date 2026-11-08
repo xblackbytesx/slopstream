@@ -381,6 +381,11 @@ A new service is a new JVM module implementing `ContentSource`, registered in
       its own window, so the player's immersive mode is untouched. The waking key or touch is
       swallowed whole (wake on key up / pointer up) so it never also clicks a tile; volume
       keys pass through.
+    - **Two black layers** (fixed 2026-11-08, found on the Shield): the dialog window is
+      transparent and its content need not cover every pixel, so a strip of a paused video
+      stayed lit at the left edge. Now `Blackout` also blacks out the activity's own window
+      (over the player, which covers its video surface too; `BlackoutTest` checks every
+      pixel), and the dialog window turns opaque black, gravity fill, once faded in.
     - **No wake lock of its own**: the system's own sleep and screensaver timeouts still apply
       and win if shorter. The player now keeps the screen on only while a video plays,
       resolves or rebuffers (it was on whenever the player was open, so a finished video's
