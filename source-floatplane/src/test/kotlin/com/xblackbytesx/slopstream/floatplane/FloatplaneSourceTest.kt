@@ -23,6 +23,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import java.time.Instant
@@ -301,6 +302,66 @@ class FloatplaneSourceTest {
         val again = s.downloadStream("postD", "vidD:360-avc1")
         assertEquals("https://edge01.example/Videos/vidD/360.mp4?token=TOKEN", again.url)
         assertEquals("vidD", seen.last { it.url.encodedPath == "/api/v3/delivery/info" }.url.queryParameter("entityId"))
+    }
+
+    @Test
+    fun anEmptyDownloadOfferSaysWhatWasOffered() = runTest {
+        routes["/api/v3/content/post"] = ok("post_download.json")
+        routes["/api/v3/delivery/info"] = MockResponse.Builder().code(200).body(
+            """{"groups":[{"origins":[{"url":"https://edge.example"}],"variants":[""" +
+                """{"name":"1080","label":"1080p","url":"/a.mp4?t=1","meta":{"video":{"codec":"h264","width":1920,"height":1080,"fps":30}}},""" +
+                """{"name":"720","label":"720p","url":"/b.mp4?t=1"},""" +
+                """{"name":"4k","label":"4K","url":"","enabled":false}]}]}""",
+        ).build()
+        try {
+            source().downloadOffer("postD", shield, PlaybackPrefs(QualityCap.BEST))
+            fail("nothing playable")
+        } catch (e: SourceUnavailableException) {
+            assertEquals(
+                "No download this device can play. Floatplane offers: 1080p h264 1920x1080; 720p no picture info; 4K no picture info off no link",
+                e.message,
+            )
+        }
+    }
+
+    @Test
+    fun switchedOffFilesFallBackToSavingTheStream() = runTest {
+        routes["/api/v3/content/post"] = ok("post_download.json")
+        val off = MockResponse.Builder().code(200).body(
+            """{"groups":[{"origins":[{"url":"https://edge.example"}],"variants":[""" +
+                """{"name":"360-avc1","label":"360p","url":"","enabled":false,"meta":{"video":{"codec":"avc1.64001e","width":640,"height":360,"fps":30}}},""" +
+                """{"name":"1080-avc1","label":"1080p","url":"","enabled":false,"meta":{"video":{"codec":"avc1.640028","width":1920,"height":1080,"fps":30}}}]}]}""",
+        ).build()
+        handlers["/api/v3/delivery/info"] = { r -> if (r.url.queryParameter("scenario") == "download") off else ok("delivery_ondemand.json") }
+        val s = FloatplaneSource(
+            FloatplaneApi(OkHttpClient(), { it.header("Authorization", "Bearer test-token") }, server.url("/").toString().trimEnd('/')),
+            FloatplaneSite.SAUCEPLUS,
+        )
+
+        val offer = s.downloadOffer("postD", shield, PlaybackPrefs(QualityCap.BEST))
+        val scenarios = seen.filter { it.url.encodedPath == "/api/v3/delivery/info" }.map { it.url.queryParameter("scenario") }
+        assertEquals(listOf("download", "onDemand"), scenarios)
+        assertTrue(offer.videos.isNotEmpty())
+        assertTrue(offer.videos.all { it.id.startsWith("vidD:hls:") && it.extension == "ts" })
+        val smallest = offer.audioSource!!
+        assertEquals("vidD:hls:360-avc1", smallest.id)
+        assertEquals("https://cdn.example/Videos/vidS1/360.mp4/chunk.m3u8?token=TOKEN", smallest.url)
+        val access = smallest.segmented!!
+        assertEquals(setOf(server.hostName), access.authHosts)
+        assertEquals("Bearer test-token", access.authHeaders["Authorization"])
+        assertEquals(mapOf(FloatplaneSite.FLOATPLANE.host to server.hostName), access.hostRewrites)
+        assertEquals(93_340L * 600 / 8, offer.audioOnlySize)
+
+        // Files once off: the next offer asks for the stream alone, and a renewal too.
+        seen.clear()
+        s.downloadOffer("postD", shield, PlaybackPrefs(QualityCap.BEST))
+        val again = s.downloadStream("postD", "vidD:hls:360-avc1")
+        assertEquals(smallest.url, again.url)
+        assertNotNull(again.segmented)
+        assertEquals(
+            listOf("onDemand", "onDemand"),
+            seen.filter { it.url.encodedPath == "/api/v3/delivery/info" }.map { it.url.queryParameter("scenario") },
+        )
     }
 
     @Test

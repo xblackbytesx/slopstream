@@ -62,8 +62,13 @@ class PlayerViewModel @Inject constructor(
     val comments: CommentsLoader? = sources[route.source].takeIf { it.capabilities.hasComments }
         ?.let { CommentsLoader(it, route.videoId, viewModelScope) }
 
+    /** The video's row in the library, when it has one: when it came out, for the Description tab. */
+    private val _row = MutableStateFlow<VideoRow?>(null)
+    val row: StateFlow<VideoRow?> = _row.asStateFlow()
+
     init {
         if (reclaimed == null) engine.load(route.source, route.videoId, startAtMs = route.startMs.takeIf { it >= 0 })
+        viewModelScope.launch { _row.value = feed.row(route.source, route.videoId) }
     }
 
     /** Leaving an audio-only play hands it to the mini player instead of ending it. */

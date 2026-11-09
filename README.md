@@ -26,9 +26,16 @@ for phones, tablets and TVs (Android 11+, including the NVIDIA Shield and Google
 - Download videos (YouTube, Floatplane, Sauce+) to watch offline, in any quality your device plays, or as audio
   only, which plays like a podcast: on with the screen off, with lock-screen controls, a mini
   player while you browse, and resuming where you left off. A Downloads screen shows what they take and deletes them.
-- Search your library, or YouTube itself when you ask for it.
+- Search your library, or YouTube itself when you ask for it. Recent searches sit under the search
+  field, one press to run again; they stay on the device.
+- The creator's description beside the video, with its chapters as buttons that jump there.
+  It comes with the video, so it costs nothing and reads offline for downloads.
 - Comments on YouTube, Floatplane and Sauce+, if you turn them on: loaded only when you open
   them, never stored.
+- Experimental: Slopstream's own YouTube extractor (Settings, Experimental). Videos start about a
+  second sooner, and every stream is checked before it plays, so a video that would stop partway
+  is caught and rescued first. Downloads use it too, checked the same way before they start.
+  NewPipe takes over whenever it fails.
 - OLED-safe: after a few idle minutes (anywhere, including a paused or finished video) the
   screen goes black with a bouncing logo, DVD-player style. It does hit the corner.
 - Import from NewPipe (subscriptions JSON or database zip) or Google Takeout

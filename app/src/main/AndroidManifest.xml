@@ -16,6 +16,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Audio-only downloads keep playing with the screen off (decision 25). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Audio-only downloads with the screen off (ExoPlayer's wake mode, only while playing). -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:name=".SlopstreamApp"

@@ -44,6 +44,7 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -71,6 +72,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xblackbytesx.slopstream.core.Channel
 import com.xblackbytesx.slopstream.core.SourceKey
 import com.xblackbytesx.slopstream.core.VideoKind
+import com.xblackbytesx.slopstream.data.PastSearch
 import com.xblackbytesx.slopstream.data.db.SubscriptionEntity
 import com.xblackbytesx.slopstream.data.db.VideoRow
 import com.xblackbytesx.slopstream.ui.comments.CommentsGate
@@ -115,24 +117,43 @@ interface SearchActions {
 fun SearchScreen(nav: SearchNav, vm: SearchViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     var menuFor by remember { mutableStateOf<Pair<VideoRow, Boolean>?>(null) }
+    var pastMenu by remember { mutableStateOf<PastSearch?>(null) }
     val commentsGate: CommentsGate = hiltViewModel()
     val downloads: DownloadActions = hiltViewModel()
     // The tile last played or opened, focused again when the screen comes back (TV).
     var lastActivated by rememberSaveable { mutableStateOf<String?>(null) }
     val isTv = LocalIsTv.current
+    // After a removal the chip that had focus is gone: focus the newest one left (TV).
+    val firstPast = remember { FocusRequester() }
+    var refocus by remember { mutableIntStateOf(0) }
+    LaunchedEffect(refocus) {
+        if (refocus == 0 || !isTv) return@LaunchedEffect
+        repeat(20) {
+            withFrameNanos { }
+            if (runCatching { firstPast.requestFocus(FocusDirection.Enter) }.getOrDefault(false)) return@LaunchedEffect
+        }
+    }
     val actions = remember(vm, nav) {
         object : SearchActions {
             override fun play(row: VideoRow, global: Boolean) {
+                vm.keep(fromGlobal = global)
                 lastActivated = tileKey(row, global)
                 if (global) nav.playDirect(row) else nav.play(row)
             }
             override fun menu(row: VideoRow, global: Boolean) {
+                vm.keep(fromGlobal = global)
                 lastActivated = tileKey(row, global)
                 menuFor = row to global
             }
             override fun prefetch(row: VideoRow) = vm.prefetch(row)
-            override fun openSubscription(s: SubscriptionEntity) = nav.openSubscription(s)
-            override fun toggleSubscribe(c: Channel) { vm.toggleSubscribe(c) }
+            override fun openSubscription(s: SubscriptionEntity) {
+                vm.keep()
+                nav.openSubscription(s)
+            }
+            override fun toggleSubscribe(c: Channel) {
+                vm.keep(fromGlobal = true)
+                vm.toggleSubscribe(c)
+            }
         }
     }
 
@@ -147,6 +168,10 @@ fun SearchScreen(nav: SearchNav, vm: SearchViewModel = hiltViewModel()) {
             onGlobal = vm::setGlobal,
             onSubmit = vm::submit,
             globalService = state.service.label.takeIf { state.canSearchGlobal },
+        )
+        RecentSearches(
+            state.suggestions, state.query, typing = state.query.isNotBlank(),
+            onRun = vm::runAgain, onMenu = { pastMenu = it }, firstFocus = firstPast,
         )
         SearchResults(state, actions, restoreFocusKey = lastActivated.takeIf { isTv })
     }
@@ -165,6 +190,16 @@ fun SearchScreen(nav: SearchNav, vm: SearchViewModel = hiltViewModel()) {
                 playOn = nav.playOn?.takeIf { row.kind != VideoKind.SHORT.name }?.let { send -> { send(row) } },
             ),
             onDismiss = { menuFor = null },
+        )
+    }
+    pastMenu?.let { past ->
+        PastSearchMenu(
+            past = past,
+            service = state.service.label,
+            onRun = { vm.runAgain(past) },
+            onRemove = { vm.forget(past); refocus++ },
+            onClearAll = vm::clearHistory,
+            onDismiss = { pastMenu = null },
         )
     }
     DownloadSheetHost(downloads)

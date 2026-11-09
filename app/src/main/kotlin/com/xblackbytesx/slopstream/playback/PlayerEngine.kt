@@ -157,6 +157,9 @@ class PlayerEngine(
                 // An audio-only file taken whole from a video keeps its picture track: skip it.
                 val audioOnly = (plan as? PlaybackPlan.Local)?.audioOnly == true
                 trackSelector.parameters = trackSelector.buildUponParameters().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, audioOnly).build()
+                // Audio with the screen off: keep the CPU awake while it plays, as podcast players
+                // do; the file is on the device, so no Wi-Fi lock. Released whenever it pauses.
+                player.setWakeMode(if (audioOnly) C.WAKE_MODE_LOCAL else C.WAKE_MODE_NONE)
                 player.setMediaSource(mediaSources.build(plan), start)
                 player.prepare()
                 player.playWhenReady = true

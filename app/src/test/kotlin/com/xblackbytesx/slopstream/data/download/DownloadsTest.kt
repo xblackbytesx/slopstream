@@ -6,8 +6,10 @@ import androidx.test.core.app.ApplicationProvider
 import com.xblackbytesx.slopstream.FakeSource
 import com.xblackbytesx.slopstream.core.DownloadOffer
 import com.xblackbytesx.slopstream.core.DownloadStream
+import com.xblackbytesx.slopstream.core.Segmented
 import com.xblackbytesx.slopstream.core.SourceCapabilities
 import com.xblackbytesx.slopstream.core.playback.VideoCandidate
+import com.xblackbytesx.slopstream.core.playback.VideoDetails
 import com.xblackbytesx.slopstream.data.Clock
 import com.xblackbytesx.slopstream.data.Settings
 import com.xblackbytesx.slopstream.data.Sources
@@ -62,8 +64,11 @@ class DownloadsTest {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 requested += request.url.encodedPath
+                if (request.url.encodedPath == "/chunk.m3u8") return MockResponse.Builder().code(200).body("#EXTM3U\n#EXTINF:6,\nvideo\n#EXTINF:2,\naudio\n#EXT-X-ENDLIST").build()
                 val body = files[request.url.encodedPath] ?: return MockResponse.Builder().code(404).build()
-                val (from, to) = Regex("bytes=(\\d+)-(\\d+)").find(request.headers["Range"].orEmpty())!!.destructured
+                // Segments are fetched whole.
+                val range = request.headers["Range"] ?: return MockResponse.Builder().code(200).body(Buffer().write(body)).build()
+                val (from, to) = Regex("bytes=(\\d+)-(\\d+)").find(range)!!.destructured
                 val end = minOf(to.toInt(), body.size - 1)
                 return MockResponse.Builder().code(206).body(Buffer().write(body.copyOfRange(from.toInt(), end + 1))).build()
             }
@@ -187,6 +192,25 @@ class DownloadsTest {
     }
 
     @Test
+    fun aStreamOnlyServiceSavesItsSegmentsThenKeepsTheSound() = runTest {
+        // Sauce+: download files off, so the offer is the stream's playlist (decision 26).
+        val hls = DownloadStream(
+            "att:hls:360", server.url("/chunk.m3u8").toString(), "ts", 37_000, sizeExact = false,
+            video = VideoCandidate("360", "avc1", 640, 360, 30, 0, false), audioSizeBytes = 2_000, segmented = Segmented(),
+        )
+        source.offer = muxed().copy(videos = listOf(hls))
+        val d = downloads()
+        d.start("yt", source.offer!!, video = null)
+        assertTrue(d.runQueue())
+        val plan = d.localPlan("yt", "v1")!!
+        assertTrue(plan.audioOnly)
+        // The segments joined (37 000 bytes), then the stand-in extractor's half.
+        assertArrayEquals((files["/video"]!! + files["/audio"]!!).copyOf(18_500), File(plan.audioPath!!).readBytes())
+        assertEquals(listOf("yt_v1.a.m4a"), tmp.root.list()!!.sorted())
+        assertEquals(listOf("/chunk.m3u8", "/video", "/audio"), requested)
+    }
+
+    @Test
     fun whenTheSoundCannotBeTakenOutTheWholeFileStays() = runTest {
         source.offer = muxed()
         extractor = AudioExtractor { _, _ -> throw IllegalStateException("no muxer") }
@@ -208,6 +232,25 @@ class DownloadsTest {
         assertNull(db.downloads().get("yt", "v1"))
         assertTrue(tmp.root.listFiles()!!.isEmpty())
         assertNull(d.localPlan("yt", "v1"))
+    }
+
+    @Test
+    fun theDescriptionIsSavedBesideTheFilesAndGoesWithThem() = runTest {
+        val d = downloads()
+        val offer = source.offer!!.copy(details = VideoDetails("Links below.\n\n0:10 The part"))
+        d.start("yt", offer, offer.videos.single())
+        d.runQueue()
+        assertEquals("Links below.\n\n0:10 The part", d.localPlan("yt", "v1")!!.details?.description)
+        d.remove("yt", "v1")
+        assertTrue(tmp.root.listFiles()!!.isEmpty())
+    }
+
+    @Test
+    fun withoutADescriptionThePlanHasNone() = runTest {
+        val d = downloads()
+        queued(d)
+        d.runQueue()
+        assertNull(d.localPlan("yt", "v1")!!.details)
     }
 
     @Test

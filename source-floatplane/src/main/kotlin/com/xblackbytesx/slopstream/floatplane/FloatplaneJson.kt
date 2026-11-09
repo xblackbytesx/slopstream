@@ -120,6 +120,8 @@ data class PostDetailDto(
     /** The creator object; its `owner` is a user id or a user object. */
     val creator: JsonElement? = null,
     val thumbnail: ImageDto? = null,
+    /** The creator's write-up, in HTML (`<p>` paragraphs, links). */
+    val text: String = "",
 )
 
 @Serializable

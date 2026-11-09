@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
@@ -95,6 +96,7 @@ class SettingsViewModel @Inject constructor(
     fun setRefresh(hours: Int) = edit { setRefreshHours(hours) }
     fun setComments(on: Boolean) = edit { setShowComments(on) }
     fun setScreensaver(minutes: Int) = edit { setScreensaverMinutes(minutes) }
+    fun setOwnExtractor(on: Boolean) = edit { setOwnExtractor(on) }
 }
 
 @Composable
@@ -102,6 +104,7 @@ fun SettingsScreen(
     runDeviceCheck: () -> Unit,
     signIn: (SourceKey) -> Unit,
     connectSync: () -> Unit,
+    openExtractorLog: () -> Unit,
     vm: SettingsViewModel = hiltViewModel(),
     sync: SyncViewModel = hiltViewModel(),
 ) {
@@ -193,6 +196,18 @@ fun SettingsScreen(
         item { Section("This device") }
         item { ProfileSummary(settings.profile) }
         item { SecondaryButton("Run the device check again", runDeviceCheck, icon = Icons.Filled.Memory) }
+
+        item { Section("Experimental") }
+        item {
+            ToggleRow(
+                "Slopstream's own YouTube extractor",
+                "Plays and downloads YouTube with Slopstream's own extractor: one request instead of seven, and every " +
+                    "stream checked before it plays or downloads. Whenever it fails, NewPipe takes over as before.",
+                settings.ownExtractor,
+                vm::setOwnExtractor,
+            )
+        }
+        item { SecondaryButton("Extractor log", openExtractorLog, icon = Icons.AutoMirrored.Filled.ReceiptLong) }
 
         item { Section("About") }
         item {

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.MoreVert
@@ -103,13 +104,14 @@ import com.xblackbytesx.slopstream.playback.EngineState
 import com.xblackbytesx.slopstream.playback.FrameRateMatcher
 import com.xblackbytesx.slopstream.playback.PlayerEngine
 import com.xblackbytesx.slopstream.playback.PlayerSession
-import com.xblackbytesx.slopstream.ui.comments.CommentsList
+import com.xblackbytesx.slopstream.ui.comments.compact
 import com.xblackbytesx.slopstream.ui.comments.CommentsLoader
 import com.xblackbytesx.slopstream.ui.components.ListRow
 import com.xblackbytesx.slopstream.ui.components.MenuItem
 import com.xblackbytesx.slopstream.ui.components.PrimaryButton
 import com.xblackbytesx.slopstream.ui.components.SecondaryButton
 import com.xblackbytesx.slopstream.ui.components.formatPosition
+import com.xblackbytesx.slopstream.ui.components.relativeTime
 import com.xblackbytesx.slopstream.ui.downloads.DownloadActions
 import com.xblackbytesx.slopstream.ui.downloads.DownloadMenu
 import com.xblackbytesx.slopstream.ui.downloads.DownloadSheetHost
@@ -133,6 +135,8 @@ fun PlayerScreen(
     // Read so the menu follows the download as it starts, finishes or goes.
     val downloadStates by downloads.states.collectAsStateWithLifecycle()
     val title = (state.plan?.title ?: vm.route.title).ifBlank { "Loading…" }
+    val row by vm.row.collectAsStateWithLifecycle()
+    val published = row?.takeUnless { it.dateUnknown }?.let { relativeTime(it.publishedAt, approximate = it.dateApproximate) }
     val live = (state.plan as? PlaybackPlan.Manifest)?.live == true
     val download = remember(downloadStates, live, title) {
         if (live) null else downloads.menu(vm.route.source, vm.route.videoId, title)
@@ -163,6 +167,7 @@ fun PlayerScreen(
         onBack = onBack,
         enterPip = enterPip,
         comments = vm.comments.takeIf { settings?.showComments == true },
+        published = published,
         download = download,
         onPlayOn = playOn,
     )
@@ -189,15 +194,18 @@ fun PlayerChrome(
     portraitShorts: Boolean = false,
     onPrevious: (() -> Unit)? = null,
     onNext: (() -> Unit)? = null,
-    /** Non-null: Comments under More, and the side panel it opens. */
+    /** Non-null: Comments under More, and its tab in the side panel. */
     comments: CommentsLoader? = null,
+    /** When it came out, as worded on its tile, for the Description tab. */
+    published: String? = null,
     /** Non-null: Download (or cancel, remove) under More. */
     download: DownloadMenu? = null,
     /** Non-null: Play on TV under More (decision 28). */
     onPlayOn: (() -> Unit)? = null,
 ) {
     val isTv = LocalIsTv.current
-    var showComments by remember { mutableStateOf(false) }
+    // The side panel and its tab; null while it is shut.
+    var panel by remember { mutableStateOf<PanelTab?>(null) }
     var showMore by remember { mutableStateOf(false) }
     val player = engine.player
     val inPip by PlayerSession.inPip.collectAsStateWithLifecycle()
@@ -209,10 +217,11 @@ fun PlayerChrome(
     val playFocus = remember { FocusRequester() }
     val swipe = rememberSwipeAdjust()
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val swipeEnabled = !isTv && landscape && !portraitShorts && !inPip && !showComments
+    val swipeEnabled = !isTv && landscape && !portraitShorts && !inPip && panel == null
     val localPlan = state.plan as? PlaybackPlan.Local
     // An audio download plays like a podcast: controls stay up, the screen may sleep, no PiP.
     val audioOnly = localPlan?.audioOnly == true
+    val hasDescription = state.plan?.details?.description?.isNotBlank() == true
 
     fun poke() { lastInteraction = System.currentTimeMillis(); visible = true }
     fun togglePlay() { if (player.isPlaying) player.pause() else { if (state.ended) player.seekTo(0); player.play() }; poke() }
@@ -310,7 +319,7 @@ fun PlayerChrome(
                     onTogglePlay = ::togglePlay,
                     onSeek = ::seekBy,
                     onQuality = { showQuality = true },
-                    onMore = if (comments != null || download != null || audioOnly || onPlayOn != null) ({ showMore = true }) else null,
+                    onMore = if (hasDescription || comments != null || download != null || audioOnly || onPlayOn != null) ({ showMore = true }) else null,
                     onPip = if (!isTv) enterPip else null,
                     onInteract = ::poke,
                     compact = portraitShorts,
@@ -318,11 +327,34 @@ fun PlayerChrome(
             }
         }
 
-        if (showComments && comments != null && !inPip) {
-            CommentsPanel(comments, isTv, Modifier.align(if (isTv) Alignment.CenterEnd else Alignment.BottomCenter)) {
-                showComments = false
-                runCatching { rootFocus.requestFocus() }
+        val open = panel
+        if (open != null && !inPip) {
+            val plan = state.plan
+            val lines = remember(plan?.details, plan?.durationSec) {
+                DescriptionText.lines(plan?.details?.description.orEmpty(), plan?.durationSec ?: 0)
             }
+            val meta = listOfNotNull(
+                subtitle.takeIf { it.isNotBlank() },
+                published,
+                plan?.details?.views?.let { "${compact(it)} ${if (it == 1L) "view" else "views"}" },
+            ).joinToString(" · ")
+            VideoPanel(
+                tab = open,
+                onTab = { panel = it },
+                header = PanelHeader(title, meta),
+                description = lines,
+                comments = comments,
+                isTv = isTv,
+                onSeek = { ms ->
+                    player.seekTo(ms)
+                    if (!player.isPlaying) player.play()
+                },
+                onClose = {
+                    panel = null
+                    runCatching { rootFocus.requestFocus() }
+                },
+                modifier = Modifier.align(if (isTv) Alignment.CenterEnd else Alignment.BottomCenter),
+            )
         }
 
         state.error?.let { msg ->
@@ -341,14 +373,15 @@ fun PlayerChrome(
     }
 
     // Declared last, so Back closes the panel before anything else.
-    BackHandler(enabled = showComments) {
-        showComments = false
+    BackHandler(enabled = panel != null) {
+        panel = null
         runCatching { rootFocus.requestFocus() }
     }
 
     if (showMore) {
         MoreDialog(
-            onComments = comments?.let { c -> { c.start(); showComments = true } },
+            onDescription = if (hasDescription) ({ panel = PanelTab.DESCRIPTION }) else null,
+            onComments = comments?.let { { panel = PanelTab.COMMENTS } },
             download = download,
             onWatchVideo = if (audioOnly) engine::streamVideo else null,
             onPlayOn = onPlayOn,
@@ -496,28 +529,6 @@ private fun Controls(
     }
 }
 
-/** Comments beside the video (TV: a side sheet; phone: the lower half), which keeps playing. */
-@Composable
-private fun CommentsPanel(loader: CommentsLoader, isTv: Boolean, modifier: Modifier, onClose: () -> Unit) {
-    val state by loader.state.collectAsStateWithLifecycle()
-    val first = remember { FocusRequester() }
-    val close = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { close.requestFocus() } }
-    LaunchedEffect(state.nodes.isNotEmpty()) { if (state.nodes.isNotEmpty()) runCatching { first.requestFocus() } }
-    Column(
-        modifier
-            .then(if (isTv) Modifier.fillMaxHeight().width(460.dp) else Modifier.fillMaxWidth().fillMaxHeight(0.6f))
-            .background(Palette.Surface.copy(alpha = 0.96f), RoundedCornerShape(if (isTv) 0.dp else 16.dp))
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Comments", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            IconButton(onClick = onClose, modifier = Modifier.focusRequester(close)) { Icon(Icons.Filled.Close, "Close comments") }
-        }
-        CommentsList(state, loader::more, loader::toggleReplies, loader::moreReplies, firstFocus = first)
-    }
-}
-
 @Composable
 private fun RoundButton(
     icon: ImageVector,
@@ -579,9 +590,10 @@ private fun SeekBar(position: Long, buffered: Long, duration: Long, onSeekTo: (L
     )
 }
 
-/** What the player keeps out of its control row: comments, downloading and playing on a TV. */
+/** What the player keeps out of its control row: the side panel, downloading and playing on a TV. */
 @Composable
 private fun MoreDialog(
+    onDescription: (() -> Unit)?,
     onComments: (() -> Unit)?,
     download: DownloadMenu?,
     onWatchVideo: (() -> Unit)?,
@@ -598,6 +610,7 @@ private fun MoreDialog(
             val items = listOfNotNull(
                 onWatchVideo?.let { Triple(Icons.Filled.OndemandVideo, "Watch the video (streams it)", it) },
                 onPlayOn?.let { Triple(Icons.Filled.Cast, "Play on TV…", it) },
+                onDescription?.let { Triple(Icons.Filled.Description, "Description", it) },
                 onComments?.let { Triple(Icons.AutoMirrored.Filled.Comment, "Comments", it) },
                 download?.let { Triple(it.icon, it.label, it.onClick) },
             )

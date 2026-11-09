@@ -7,6 +7,7 @@ import com.xblackbytesx.slopstream.core.CommentsPage
 import com.xblackbytesx.slopstream.core.DownloadOffer
 import com.xblackbytesx.slopstream.core.DownloadStream
 import com.xblackbytesx.slopstream.core.ContentSource
+import com.xblackbytesx.slopstream.core.Segmented
 import com.xblackbytesx.slopstream.core.SourceAuthException
 import com.xblackbytesx.slopstream.core.SourceCapabilities
 import com.xblackbytesx.slopstream.core.SourceException
@@ -155,14 +156,27 @@ class FloatplaneSource(
      * scenario of `delivery/info` lists one plain MP4 per quality, picture and sound in one
      * file, fetched by range with its URL token alone. Sizes are estimated from the bitrates.
      * A stream id is `<attachment>:<variant>`, so renewing a URL is one delivery call.
+     *
+     * Where those files are switched off (Sauce+ lists every one off and without a link, live
+     * report 2026-11-09), the stream the player plays is saved instead: its HLS segments,
+     * decrypted with the account's key ([Segmented]), stream id `<attachment>:hls:<variant>`.
+     * Once a site's files were off, later offers skip asking for them (one delivery call less).
      */
     override suspend fun downloadOffer(videoId: String, profile: DeviceProfile, prefs: PlaybackPrefs): DownloadOffer {
         if (FloatplaneMapping.creatorOfLiveId(videoId) != null) throw SourceUnavailableException("A livestream can't be downloaded")
         val post = api.post(videoId)
         val video = FloatplaneMapping.firstPlayable(post) ?: throw SourceUnavailableException("This post has no downloadable video")
-        val variants = FloatplaneMapping.variants(api.delivery("download", video.id))
-        val options = StreamSelector.playable(variants.map { it.candidate }, profile, prefs)
-        if (options.isEmpty()) throw SourceUnavailableException("No download this device can play")
+        val files = if (filesOff) null else api.delivery("download", video.id)
+        val fileVariants = files?.let(FloatplaneMapping::variants).orEmpty()
+        val fileOptions = StreamSelector.playable(fileVariants.map { it.candidate }, profile, prefs)
+        val streamed = fileOptions.isEmpty()
+        if (files != null && streamed && FloatplaneMapping.filesSwitchedOff(files)) filesOff = true
+        val variants = if (streamed) FloatplaneMapping.variants(api.delivery("onDemand", video.id)) else fileVariants
+        val options = if (streamed) StreamSelector.playable(variants.map { it.candidate }, profile, prefs) else fileOptions
+        if (options.isEmpty()) {
+            throw SourceUnavailableException(files?.let { FloatplaneMapping.noDownload(site.name, it) } ?: "No stream this device can play")
+        }
+        val access = if (streamed) segmented() else null
         val duration = video.duration.toLong()
         val (creatorId, creatorName) = FloatplaneMapping.creatorOf(post) ?: ("" to "")
         return DownloadOffer(
@@ -172,27 +186,46 @@ class FloatplaneSource(
             channelName = creatorName,
             durationSec = duration,
             thumbnailUrl = post.thumbnail?.pick(640),
-            videos = options.map { c -> download(video.id, variants.first { it.candidate == c }, duration) },
+            videos = options.map { c -> download(video.id, variants.first { it.candidate == c }, duration, access) },
             audio = null,
+            details = FloatplaneMapping.details(post),
         )
     }
 
     override suspend fun downloadStream(videoId: String, streamId: String): DownloadStream {
         val attachment = streamId.substringBefore(':')
-        val name = streamId.substringAfter(':')
-        val variant = FloatplaneMapping.variants(api.delivery("download", attachment)).firstOrNull { it.candidate.id == name }
+        val rest = streamId.substringAfter(':')
+        val streamed = rest.startsWith(HLS_PREFIX)
+        val name = rest.removePrefix(HLS_PREFIX)
+        val variant = FloatplaneMapping.variants(api.delivery(if (streamed) "onDemand" else "download", attachment)).firstOrNull { it.candidate.id == name }
             ?: throw SourceUnavailableException("${site.name} no longer offers this quality ($name)")
         // Duration only feeds the size estimate, which the download does not rely on.
-        return download(attachment, variant, durationSec = 0)
+        return download(attachment, variant, durationSec = 0, access = if (streamed) segmented() else null)
     }
 
-    private fun download(attachment: String, v: FloatplaneMapping.Variant, durationSec: Long): DownloadStream {
+    /** Set once the site listed its download files switched off: offers go straight to the stream. */
+    @Volatile private var filesOff = false
+
+    /** What fetching the stream's segments and key needs: the player's credentials and key host. */
+    private suspend fun segmented() = Segmented(
+        authHosts = setOf(api.host),
+        authHeaders = api.credentialHeaders(),
+        hostRewrites = keyRewrites(),
+    )
+
+    // Sauce+ playlists name www.floatplane.com's watchKey, which refuses a Sauce+ session; the
+    // same path on www.sauceplus.com serves the key (live report 2026-10-23).
+    private fun keyRewrites() = if (api.host != FLOATPLANE_KEY_HOST) mapOf(FLOATPLANE_KEY_HOST to api.host) else emptyMap()
+
+    private fun download(attachment: String, v: FloatplaneMapping.Variant, durationSec: Long, access: Segmented? = null): DownloadStream {
         val audioBits = v.audioBitrate ?: 0
         val bits = v.candidate.bitrate + audioBits
         return DownloadStream(
-            id = "$attachment:${v.candidate.id}",
+            id = if (access != null) "$attachment:$HLS_PREFIX${v.candidate.id}" else "$attachment:${v.candidate.id}",
             url = v.url,
-            extension = "mp4",
+            // MPEG-TS segments joined (the platform's on-demand streams, video/MP2T).
+            extension = if (access != null) "ts" else "mp4",
+            segmented = access,
             sizeBytes = (bits * durationSec / 8).takeIf { it > 0 },
             sizeExact = false,
             video = v.candidate,
@@ -269,13 +302,15 @@ class FloatplaneSource(
             chosen = chosen,
             authHosts = setOf(api.host),
             authHeaders = api.credentialHeaders(),
-            // Sauce+ playlists name www.floatplane.com's watchKey, which refuses a Sauce+
-            // session; the same path on www.sauceplus.com serves the key (live report 2026-10-23).
-            hostRewrites = if (api.host != FLOATPLANE_KEY_HOST) mapOf(FLOATPLANE_KEY_HOST to api.host) else emptyMap(),
+            hostRewrites = keyRewrites(),
+            details = FloatplaneMapping.details(post),
         )
     }
 
     private companion object {
+        /** In a stream id: the variant is saved from the stream's segments. */
+        const val HLS_PREFIX = "hls:"
+
         /** Where every playlist on the platform points its AES key, Sauce+ included. */
         val FLOATPLANE_KEY_HOST = FloatplaneSite.FLOATPLANE.host
 

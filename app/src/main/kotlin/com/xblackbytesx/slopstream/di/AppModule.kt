@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.xblackbytesx.slopstream.core.ContentSource
 import com.xblackbytesx.slopstream.data.Accounts
+import com.xblackbytesx.slopstream.data.ExtractorLog
 import com.xblackbytesx.slopstream.data.FloatplaneSites
 import com.xblackbytesx.slopstream.data.KeystoreSecretStore
 import com.xblackbytesx.slopstream.data.SecretStore
@@ -27,6 +28,9 @@ import com.xblackbytesx.slopstream.floatplane.FloatplaneSource
 import com.xblackbytesx.slopstream.floatplane.SessionAuthorizer
 import com.xblackbytesx.slopstream.potoken.WebPoTokenProvider
 import com.xblackbytesx.slopstream.youtube.YoutubeSource
+import com.xblackbytesx.slopstream.youtube.innertube.Innertube
+import com.xblackbytesx.slopstream.youtube.innertube.InnertubeResolver
+import com.xblackbytesx.slopstream.youtube.innertube.OwnExtractor
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -56,8 +60,16 @@ object AppModule {
     @Provides
     @Singleton
     @IntoSet
-    fun youtube(@ApplicationContext context: Context, client: OkHttpClient): ContentSource =
-        YoutubeSource(client, Locale.getDefault(), WebPoTokenProvider(context, client))
+    fun youtube(@ApplicationContext context: Context, client: OkHttpClient, log: ExtractorLog): ContentSource =
+        YoutubeSource(
+            client, Locale.getDefault(), WebPoTokenProvider(context, client),
+            // Decision 30: the experimental extractor, switched in Settings, NewPipe as fallback.
+            own = OwnExtractor(
+                InnertubeResolver(Innertube(client, hl = Locale.getDefault().toLanguageTag(), gl = Locale.getDefault().country.ifBlank { "US" }), client),
+                enabled = { log.enabled.value },
+                onReport = log::add,
+            ),
+        )
 
     /**
      * Floatplane and Sauce+, one platform: each signed in with its stored website session;

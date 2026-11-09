@@ -3,9 +3,11 @@ package com.xblackbytesx.slopstream.floatplane
 import com.xblackbytesx.slopstream.core.Channel
 import com.xblackbytesx.slopstream.core.Comment
 import com.xblackbytesx.slopstream.core.CommentsPage
+import com.xblackbytesx.slopstream.core.HtmlText
 import com.xblackbytesx.slopstream.core.VideoItem
 import com.xblackbytesx.slopstream.core.VideoKind
 import com.xblackbytesx.slopstream.core.playback.VideoCandidate
+import com.xblackbytesx.slopstream.core.playback.VideoDetails
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -90,6 +92,9 @@ object FloatplaneMapping {
     )
 
     /** The video a post plays first: attachment order as the creator arranged it. */
+    /** The post's write-up as plain text; Floatplane counts no views. */
+    fun details(post: PostDetailDto) = VideoDetails(HtmlText.plain(post.text))
+
     fun firstPlayable(post: PostDetailDto): VideoAttachmentDto? {
         val byId = post.videoAttachments.associateBy { it.id }
         val ordered = post.attachmentOrder.mapNotNull(byId::get) + post.videoAttachments.filter { it.id !in post.attachmentOrder }
@@ -127,6 +132,32 @@ object FloatplaneMapping {
                     audioBitrate = v.meta.audio?.bitrate?.average,
                 )
             }
+    }
+
+    /**
+     * Why a download offer came out empty, with what the service listed, so the message on the
+     * device says what to fix (2026-11-09: Sauce+ downloads failed with no clue why).
+     */
+    fun noDownload(site: String, delivery: DeliveryDto): String {
+        val all = delivery.groups.flatMap { it.variants }
+        if (all.isEmpty()) return "$site lists no download files for this video"
+        val files = all.joinToString("; ") { v ->
+            val video = v.meta?.video
+            buildList {
+                add(v.label.ifBlank { v.name })
+                add(video?.let { "${it.codec ?: "no codec"} ${it.width}x${it.height}" } ?: "no picture info")
+                if (!v.enabled) add("off")
+                if (v.hidden) add("hidden")
+                if (v.url.isBlank()) add("no link")
+            }.joinToString(" ")
+        }
+        return "No download this device can play. $site offers: $files"
+    }
+
+    /** Every listed download file switched off: the site does not hand out files (Sauce+). */
+    fun filesSwitchedOff(delivery: DeliveryDto): Boolean {
+        val all = delivery.groups.flatMap { it.variants }
+        return all.isNotEmpty() && all.none { it.enabled && it.url.isNotBlank() }
     }
 
     /** The user id of the post's creator, to mark their comments. */

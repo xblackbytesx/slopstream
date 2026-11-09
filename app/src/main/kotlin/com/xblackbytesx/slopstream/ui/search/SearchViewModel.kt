@@ -6,6 +6,9 @@ import com.xblackbytesx.slopstream.core.Channel
 import com.xblackbytesx.slopstream.core.SourceKey
 import com.xblackbytesx.slopstream.core.VideoItem
 import com.xblackbytesx.slopstream.data.FeedRepository
+import com.xblackbytesx.slopstream.data.PastSearch
+import com.xblackbytesx.slopstream.data.SearchHistory
+import com.xblackbytesx.slopstream.data.SearchHistoryRules
 import com.xblackbytesx.slopstream.data.ServiceState
 import com.xblackbytesx.slopstream.data.Services
 import com.xblackbytesx.slopstream.data.Sources
@@ -23,6 +26,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -49,6 +55,8 @@ data class SearchState(
     val library: List<VideoRow> = emptyList(),
     val globalResults: GlobalResults? = null,
     val subscribed: Set<String> = emptySet(),
+    /** Earlier searches of this service to run again (decision 32), for what is typed now. */
+    val suggestions: List<PastSearch> = emptyList(),
 )
 
 /**
@@ -64,6 +72,7 @@ class SearchViewModel @Inject constructor(
     private val sources: Sources,
     private val playback: PlaybackRepository,
     private val services: Services,
+    private val history: SearchHistory,
 ) : ViewModel() {
     private val _state = MutableStateFlow(SearchState())
     val state: StateFlow<SearchState> = _state.asStateFlow()
@@ -89,7 +98,35 @@ class SearchViewModel @Inject constructor(
                 searchLibrary(debounceMs = 0)
             }
         }
+        viewModelScope.launch {
+            combine(history.all, _state.map { it.service to it.query }.distinctUntilChanged()) { all, (service, query) ->
+                SearchHistoryRules.suggestions(all, service.id, query)
+            }.collect { list -> _state.update { it.copy(suggestions = list) } }
+        }
     }
+
+    /**
+     * Keeps the search typed now: called when it is submitted or one of its results is used
+     * (played, opened, its menu, a channel followed). Typing alone never records anything,
+     * so half-typed words never end up in the list.
+     */
+    fun keep(fromGlobal: Boolean = false) {
+        val s = _state.value
+        history.record(s.service.id, s.query, global = fromGlobal || (s.global && s.globalResults != null))
+    }
+
+    /** One press: the search again, beyond the library too when it went there before. */
+    fun runAgain(past: PastSearch) {
+        _state.update { s -> s.copy(query = past.query, globalResults = s.globalResults?.takeIf { it.query == past.query }) }
+        val beyond = past.global && _state.value.canSearchGlobal
+        if (beyond) _state.update { it.copy(global = true) }
+        submit()
+        history.record(past.source, past.query, beyond)
+    }
+
+    fun forget(past: PastSearch) = history.remove(past.source, past.query)
+
+    fun clearHistory() = history.clear(_state.value.service.id)
 
     fun selectService(source: SourceKey) { viewModelScope.launch { services.select(source) } }
 
@@ -107,7 +144,11 @@ class SearchViewModel @Inject constructor(
     fun submit() {
         searchLibrary(debounceMs = 0)
         val q = _state.value.query.trim()
-        if (!_state.value.global || !_state.value.canSearchGlobal || q.isEmpty()) return
+        if (!_state.value.global || !_state.value.canSearchGlobal || q.isEmpty()) {
+            if (q.isNotEmpty()) keep()
+            return
+        }
+        history.record(_state.value.service.id, q, global = true)
         globalJob?.cancel()
         globalJob = viewModelScope.launch {
             _state.update { it.copy(globalResults = GlobalResults(q)) }

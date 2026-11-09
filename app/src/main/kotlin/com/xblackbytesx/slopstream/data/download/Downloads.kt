@@ -5,6 +5,7 @@ import com.xblackbytesx.slopstream.core.DownloadOffer
 import com.xblackbytesx.slopstream.core.DownloadStream
 import com.xblackbytesx.slopstream.core.playback.PlaybackPlan
 import com.xblackbytesx.slopstream.core.playback.VideoCandidate
+import com.xblackbytesx.slopstream.core.playback.VideoDetails
 import com.xblackbytesx.slopstream.data.Clock
 import com.xblackbytesx.slopstream.data.Settings
 import com.xblackbytesx.slopstream.data.Sources
@@ -69,6 +70,8 @@ class Downloads(
     private val fetcher: RangeFetcher = RangeFetcher(client),
     /** Where [states] is kept up to date; for the app's life. */
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    /** HLS streams saved segment by segment (Sauce+, whose download files are off). */
+    private val segments: HlsFetcher = HlsFetcher(client),
 ) {
     @Inject constructor(
         @ApplicationContext context: Context,
@@ -153,6 +156,7 @@ class Downloads(
                 finishedAt = null,
             ),
         )
+        saveDescription(source, offer)
         scheduler.kick()
     }
 
@@ -205,6 +209,7 @@ class Downloads(
             quality = quality(row),
             channelName = row.channelName,
             artworkPath = thumbnail(row)?.absolutePath,
+            details = description(row)?.let(::VideoDetails),
         )
     }
 
@@ -277,10 +282,14 @@ class Downloads(
     private suspend fun fetchStream(row: DownloadEntity, streamId: String, file: File, before: Long, onProgress: suspend (DownloadEntity, Long) -> Unit): Long {
         val source = sources[row.source]
         val stream = source.downloadStream(row.remoteId, streamId)
+        val renewed: suspend (Boolean) -> String = { renew -> if (renew) source.downloadStream(row.remoteId, streamId).url else stream.url }
+        stream.segmented?.let { access ->
+            return segments.fetch(file, access, renewed) { done -> progress(row, before + done, onProgress) }
+        }
         return fetcher.fetch(
             file,
             stream.sizeBytes.takeIf { stream.sizeExact },
-            url = { renew -> if (renew) source.downloadStream(row.remoteId, streamId).url else stream.url },
+            url = renewed,
         ) { done -> progress(row, before + done, onProgress) }
     }
 
@@ -323,9 +332,19 @@ class Downloads(
         }
     }
 
+    /** Best effort, beside the files: the Description tab reads it offline. */
+    private suspend fun saveDescription(source: String, offer: DownloadOffer) {
+        val text = offer.details?.description?.takeIf { it.isNotBlank() } ?: return
+        withContext(Dispatchers.IO) { runCatching { File(dir.apply { mkdirs() }, "${baseName(source, offer.videoId)}.txt").writeText(text) } }
+    }
+
+    private suspend fun description(row: DownloadEntity): String? = withContext(Dispatchers.IO) {
+        File(dir, "${baseName(row.source, row.remoteId)}.txt").takeIf { it.exists() }?.let { runCatching { it.readText() }.getOrNull() }
+    }
+
     private fun files(row: DownloadEntity): List<File> {
         val base = baseName(row.source, row.remoteId)
-        return listOfNotNull(row.videoFile, row.audioFile, row.audioFile?.let { "$it.src" }, "$base.jpg").flatMap { listOf(File(dir, it), File(dir, "$it.part")) }
+        return listOfNotNull(row.videoFile, row.audioFile, row.audioFile?.let { "$it.src" }, "$base.jpg", "$base.txt").flatMap { listOf(File(dir, it), File(dir, "$it.part"), File(dir, "$it.part.hls")) }
     }
 
     companion object {

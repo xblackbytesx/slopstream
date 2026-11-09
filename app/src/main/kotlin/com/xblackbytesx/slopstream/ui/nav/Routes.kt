@@ -12,6 +12,7 @@ import kotlinx.serialization.Serializable
 @Serializable data object SyncConnectRoute
 @Serializable data object HistoryRoute
 @Serializable data object DownloadsRoute
+@Serializable data object ExtractorLogRoute
 
 /** [query] prefills the search, e.g. a channel link shared from a browser. */
 @Serializable data class AddChannelRoute(val query: String = "")

@@ -1,6 +1,7 @@
 package com.xblackbytesx.slopstream.core
 
 import com.xblackbytesx.slopstream.core.playback.VideoCandidate
+import com.xblackbytesx.slopstream.core.playback.VideoDetails
 import java.time.Instant
 
 /**
@@ -167,6 +168,8 @@ data class DownloadOffer(
     val thumbnailUrl: String?,
     val videos: List<DownloadStream>,
     val audio: DownloadStream?,
+    /** Saved beside the files, for the Description tab offline. */
+    val details: VideoDetails? = null,
 ) {
     /** Where an audio-only download comes from: the audio stream, or the smallest video file. */
     val audioSource: DownloadStream? get() = audio ?: videos.minByOrNull { it.sizeBytes ?: Long.MAX_VALUE }
@@ -180,7 +183,7 @@ data class DownloadStream(
     /** Stable across URL renewals: what [ContentSource.downloadStream] looks up. */
     val id: String,
     val url: String,
-    /** File name extension: webm, mp4, m4a. */
+    /** File name extension: webm, mp4, m4a, ts. */
     val extension: String,
     /** Exact when the service says, else estimated from the bitrate; null when neither is known. */
     val sizeBytes: Long?,
@@ -189,4 +192,16 @@ data class DownloadStream(
     val video: VideoCandidate? = null,
     /** A video file with its sound in it: the sound's share of [sizeBytes], estimated. */
     val audioSizeBytes: Long? = null,
+    /** Set when [url] is an HLS playlist, saved segment by segment instead of by range. */
+    val segmented: Segmented? = null,
+)
+
+/**
+ * How to fetch an HLS playlist's parts (AES-128 keys included): [authHeaders] go to
+ * [authHosts] only, after [hostRewrites], as the player does for the same stream.
+ */
+data class Segmented(
+    val authHosts: Set<String> = emptySet(),
+    val authHeaders: Map<String, String> = emptyMap(),
+    val hostRewrites: Map<String, String> = emptyMap(),
 )

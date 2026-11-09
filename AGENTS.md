@@ -226,8 +226,8 @@ A new service is a new JVM module implementing `ContentSource`, registered in
     - `ContentSource.comments(videoId, cursor)` with `SourceCapabilities.hasComments`; YouTube
       through NewPipeExtractor's `CommentsInfo` (pages, replies, pinned, hearted), the text made
       plain by `CommentText`. YouTube's own order: it ranks within one video, never the feeds.
-    - Opened from the player (a Comments button; a side sheet on TV, the lower part on phones,
-      the video keeps playing; Back closes it) or the video menu (`CommentsRoute`).
+    - Opened from the player (More, Comments: the Comments tab of the side panel, decision 31)
+      or the video menu (`CommentsRoute`).
     - `CommentsLoader` holds pages in memory only, loads the first page when opened and the
       rest when asked; nothing is written anywhere.
     - `make smoke` checks a first page, a second page and replies.
@@ -255,7 +255,7 @@ A new service is a new JVM module implementing `ContentSource`, registered in
 22. **Swipe for brightness and volume** (2026-10-25, phones in landscape, as NewPipe and
     Grayjay): a vertical swipe on the left half sets the window's brightness, on the right half
     the media volume (`SwipeAdjust`). Not on TV, in Shorts (the pager swipes vertically), in PiP
-    or with comments open; the top and bottom tenth stay with the system bars. The brightness is
+    or with the side panel open; the top and bottom tenth stay with the system bars. The brightness is
     reset when the player closes and reused by the next player in the same process, never saved.
 
 23. **Older videos on a channel page** (2026-10-28): a "Load older videos" button at the end of
@@ -315,6 +315,16 @@ A new service is a new JVM module implementing `ContentSource`, registered in
       controls and keeps the service in the foreground while it plays. Only audio-only
       plays use it; videos keep picture-in-picture. Leaving the player (Back) hands the play
       to the mini player (decision 27).
+    - **The service follows every play, not every load** (fixed 2026-11-09, found on the user's
+      phone: "stops a few seconds after the screen turns off; only killing the app helps").
+      Android stops the service while a paused app sits in the background, and the session
+      outlived it, so a later play on the same player (mini player, reopening the episode) never
+      started it again: no foreground service, and the app was frozen with the screen off.
+      `BackgroundAudio` now listens to the player and starts the service on every play, and the
+      service adds the session again whenever it starts (`BackgroundAudioTest`, which fails on
+      the old code). A headset's play button with the app idle in the background still can't
+      start it (Android refuses); playing from the app or its notification always can.
+    - Audio-only plays hold ExoPlayer's local wake lock while playing (`WAKE_MODE_LOCAL`).
     - More, "Watch the video" streams the video from the same position; a retry or 403
       recovery keeps streaming instead of falling back to the download.
 
@@ -333,6 +343,17 @@ A new service is a new JVM module implementing `ContentSource`, registered in
       re-encoding, and the MP4 goes. If that fails the whole file is kept under that name and
       plays with the video track disabled (`PlayerEngine` turns video off for every
       audio-only plan). `DownloadEntity.extractsAudio` marks such a row.
+    - Sauce+ switches its download files off (live report 2026-11-09: every variant listed
+      `enabled: false` with an empty URL, codecs and sizes fine). Where no file can be had,
+      the offer is the on-demand stream instead: `HlsFetcher` saves the variant's playlist
+      segment by segment, AES-128 decrypted with the key the player uses (`Segmented`: the
+      session headers for the site's host, the floatplane.com key host rewritten as in
+      playback), joined into one `.ts`. Audio only goes through the same Transformer step.
+      Stream id `<attachment>:hls:<variant>`; once a site's files were off, offers skip the
+      `download` call. Resumable per segment (`<file>.part.hls`). The error when nothing fits
+      still lists what the site offered (codec, size, off, hidden, no link).
+      Verified on the phone 2026-11-09: a 1 h 26 min Safety Third episode, audio only, came
+      out at 66 MB (about 100 kbps, the AAC track alone), so Transformer reads the joined TS.
 
 27. **Mini player for audio-only plays** (2026-10-29; videos keep picture-in-picture, the
     user's call). `PlayerEngine` owns its scope, so it can outlive its screen. Leaving the
@@ -397,6 +418,86 @@ A new service is a new JVM module implementing `ContentSource`, registered in
     - **Logo**: SLOP in Anton (OFL 1.1, Impact is not redistributable), license text in
       `assets/licenses/`. The real DVD Video logo was considered and rejected: it is a
       licensed trademark (DVD Format/Logo Licensing Corporation), not for a public GPL app.
+
+30. **Slopstream's own YouTube extractor, experimental** (2026-11-08, the user's call). Settings,
+    Experimental, off by default. Playback (`resolvePlayback`, `switchVideo`) and, since
+    decision 33, downloads; search, channels and comments stay on NewPipe. Whatever ours fails on, NewPipe plays (the
+    user chose fallback over showing the error), so switching it on never makes playback worse.
+    - **Why**: measured 2026-11-08 (`gradle :source-youtube:bench`). NewPipe makes 7 requests
+      per play, one after another, every play: three `visitor_id`, two `player` (Android reel,
+      visionOS), a web `player` and `/next` for metadata playback never uses. About 1.2 s. And
+      the user's "fails today, fine tomorrow" (often on JerryRigEverything) was caught: URLs that
+      serve the start of a file answer 403 deeper in (YouTube's PoToken enforcement), so a play
+      starts and then dies; the player's one retry asks NewPipe for the same kind of URL.
+    - **How** (`youtube/innertube/`): one `player` request as the visionOS client
+      (`InnertubeClient`, values from NewPipe 0.26.5) with a visitor id fetched once and reused
+      (without one: a bot check). Its URLs are plain: no JavaScript to run. Then a 1 KB range
+      three quarters into both streams, in parallel (`served`). A refusal is rescued before the
+      player sees it: a fresh visitor and a new response, then the response's HLS stream (also
+      to 4K, muxed, served differently), then NewPipe. Live is the HLS manifest. OTF uploads
+      and ended streams still processing (DVR) go to NewPipe for now.
+    - Checked live 2026-11-08: IOS and ANDROID_VR also give plain URLs but 403 past the start
+      without a PoToken, and TVHTML5 gets a bot check, so none is a fallback today.
+    - **Measured**: same plays as NewPipe; resolve p50 276 ms (NewPipe 1,247), first media
+      byte p50 291 ms (1,336), 3 requests including the check (7).
+    - **The record** (`ExtractorLog`): every lookup with it on (a play, or the prefetch when a
+      tile is selected; a play after a prefetch uses the cached plan), ours or the fallback, why
+      ours failed, its steps; the last 200 in a private file, shown under Settings, Extractor log.
+      Ids and timings only, never sent anywhere. This is how ours is judged on the devices.
+    - The bench (`-PbenchResolvers=newpipe,own`, `-PbenchChannel=<UC id> -PbenchRounds=n`)
+      checks real bytes at the start and at 80 %, never in CI.
+
+31. **Description** (2026-11-08, the user's call): the creator's own text, in the player's side
+    panel (`VideoPanel`: a side sheet on TV, the lower part on phones, the video keeps playing,
+    Back or Close shuts it), now with two tabs, Description and Comments (the second only with
+    comments on). More, Description opens it; there is no setting, since nothing is fetched.
+    - **No request of its own**: it comes with the playback response, as
+      `PlaybackPlan.details` (`VideoDetails`: plain text and views). Ours reads `videoDetails`
+      `shortDescription` (the whole text, despite the name) and `viewCount`; NewPipe's
+      `StreamInfo.description` is HTML, Floatplane's post `text` too (per the community spec,
+      unverified live), both made plain by `HtmlText` in `:core` (paragraphs, bullets, shortened
+      link text replaced by the address; `CommentText` uses it as well).
+    - A download saves it beside its files (`<base>.txt`, removed with them), so it reads offline.
+    - **Shown** (`DescriptionText`, pure): title, then channel, the tile's date and views, then
+      a line at a time, each focusable on TV so the remote scrolls. A line that starts or ends
+      with a timestamp within the video's length is a chapter: selecting it seeks there (and
+      plays). Web addresses open in the browser on phones; plain text on TV.
+    - Not from the video menu yet: that needs a lookup of its own per video.
+
+32. **Recent searches** (2026-11-08, the user's call): earlier searches as a row of chips right
+    under the search field; one press runs one again. Built for a remote that misfires:
+    - **Kept only when meant**: on submit, or when one of its results is used (played, opened,
+      its menu, a channel followed). Typing alone records nothing, so as-you-type library search
+      never fills the list with half words. A repeat moves to the front (case and spacing
+      ignored); 30 per service; per service like everything else (decision 12).
+    - **Shown**: an empty field lists the recent ones; typing narrows them to those containing
+      every typed word (6 at most), and the one just run keeps the whole row, so nothing moves
+      under the focus. Down from the field lands on the newest; Down again reaches the results.
+    - **Scope remembered**: an entry that searched YouTube itself ("Also search YouTube") runs
+      that way again and shows a globe. This is the one way the toggle comes on by itself, and
+      only from an entry that says so; the toggle stays off on every visit (decision 14).
+    - **Removing is behind a long press** (OK held, or the Menu key), so a stray OK only ever runs
+      a search: Search again (focused), Remove, Clear all of this service. The menu swallows the
+      held key like the video menu does; focus then goes to the newest chip left.
+    - `SearchHistory`: a private JSON file on the device, never synced, never sent anywhere.
+      `SearchHistoryRules` is the pure part, tested.
+
+33. **Downloads through our own extractor** (2026-11-09, the user's call, after the extractor
+    worked on the Shield). With the experimental switch on, `downloadOffer` and `downloadStream`
+    go ours first, NewPipe after, through the same `ownFirst` as plays, and land in the
+    Extractor log (`download`, `download-renew`).
+    - **Why first**: the same player response, and the failure it guards against hurts downloads
+      most. A download reads every byte, so URLs that serve the start and 403 deeper in stop it
+      partway.
+    - **Offer**: every whole file the device decodes, best first, ignoring the cap, with the
+      exact `contentLength`; the original audio; title, channel, description. The best video and
+      the audio are checked three quarters in first; a refusal gets a new visitor, then NewPipe.
+      No HLS rescue: a download reads files, not segments.
+    - **Renewal** (an expired URL mid-download): a fresh response, the stream by id, the same
+      check. Ids are NewPipe's (`itag`, audio `itag:track`), so either side renews the other's.
+    - Live 2026-11-09 (`make smoke`, `ownExtractorDownloadsTheSame`): the 4K test video offers the
+      same eight qualities with the same exact sizes as NewPipe; offer 404 ms with a new
+      visitor, renewal 73 ms; the first 10 MB and the last 64 KB served.
 
 ## Invariants
 

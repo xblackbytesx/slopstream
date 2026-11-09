@@ -194,6 +194,17 @@ class FloatplaneSmokeTest {
             }
             .onFailure { println("  failed: $it"); findings += "download delivery: $it" }
 
+        // What the Download button offers: the files, or the stream when they are off (Sauce+).
+        Thread.sleep(31_000)
+        section("Download offer (what the app offers)")
+        runCatching { source.downloadOffer(postId, shield, PlaybackPrefs()) }
+            .onSuccess { o ->
+                o.videos.forEach { println("  ${it.id} .${it.extension} ~${(it.sizeBytes ?: 0) / 1_000_000} MB from ${if (it.segmented != null) "the stream" else "a file"}") }
+                println("  audio only: ${o.audioSource?.id}, ~${(o.audioOnlySize ?: 0) / 1_000_000} MB")
+                findings += "download offer: ${o.videos.size} qualities from ${if (o.videos.any { it.segmented != null }) "the stream (segments)" else "files"}, audio only ~${(o.audioOnlySize ?: 0) / 1_000_000} MB"
+            }
+            .onFailure { println("  failed: $it"); findings += "download offer: $it" }
+
         creators.firstOrNull { it.liveStream != null }?.let { c ->
             Thread.sleep(31_000)
             section("Delivery live (${c.title}, ${Instant.now()})")

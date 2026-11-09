@@ -232,7 +232,10 @@ private fun Spinner() {
 }
 
 /** 1234 -> 1.2K, as YouTube shows it. */
-fun compact(n: Int): String = when {
+fun compact(n: Int): String = compact(n.toLong())
+
+fun compact(n: Long): String = when {
+    n >= 1_000_000_000 -> "%.1fB".format(Locale.ROOT, n / 1_000_000_000.0).replace(".0B", "B")
     n >= 1_000_000 -> "%.1fM".format(Locale.ROOT, n / 1_000_000.0).replace(".0M", "M")
     n >= 1_000 -> "%.1fK".format(Locale.ROOT, n / 1_000.0).replace(".0K", "K")
     else -> n.toString()

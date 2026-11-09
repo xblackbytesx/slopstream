@@ -45,6 +45,8 @@ data class AppSettings(
     val showComments: Boolean = false,
     /** Minutes without input before the screensaver (decision 29); 0 = Off. */
     val screensaverMinutes: Int = DEFAULT_SCREENSAVER_MINUTES,
+    /** Slopstream's own YouTube extractor for playback, NewPipe as fallback (decision 30). Off by default. */
+    val ownExtractor: Boolean = false,
 ) {
     val prefs: PlaybackPrefs get() = PlaybackPrefs(cap = cap, allowHdr = allowHdr)
     val effectiveProfile: DeviceProfile get() = profile ?: DeviceProfile.CONSERVATIVE
@@ -72,6 +74,7 @@ class Settings @Inject constructor(@ApplicationContext private val context: Cont
         val service = stringPreferencesKey("service")
         val showComments = booleanPreferencesKey("show_comments")
         val screensaverMinutes = intPreferencesKey("screensaver_minutes")
+        val ownExtractor = booleanPreferencesKey("own_extractor")
     }
 
     val settings: Flow<AppSettings> = store.data.map { p ->
@@ -87,6 +90,7 @@ class Settings @Inject constructor(@ApplicationContext private val context: Cont
             service = p[Keys.service]?.let { id -> SourceKey.entries.firstOrNull { it.id == id } },
             showComments = p[Keys.showComments] ?: false,
             screensaverMinutes = p[Keys.screensaverMinutes] ?: AppSettings.DEFAULT_SCREENSAVER_MINUTES,
+            ownExtractor = p[Keys.ownExtractor] ?: false,
         )
     }
 
@@ -108,6 +112,7 @@ class Settings @Inject constructor(@ApplicationContext private val context: Cont
     suspend fun setService(source: SourceKey) = store.edit { it[Keys.service] = source.id }
     suspend fun setShowComments(on: Boolean) = store.edit { it[Keys.showComments] = on }
     suspend fun setScreensaverMinutes(minutes: Int) = store.edit { it[Keys.screensaverMinutes] = minutes }
+    suspend fun setOwnExtractor(on: Boolean) = store.edit { it[Keys.ownExtractor] = on }
 
     /** Stores a device check result; the cap follows the recommendation only on the first run. */
     suspend fun saveDeviceCheck(profile: DeviceProfile, recommended: QualityCap) = store.edit {

@@ -7,6 +7,10 @@ import com.xblackbytesx.slopstream.core.playback.PlaybackPlan
 import com.xblackbytesx.slopstream.core.playback.PlaybackPrefs
 import com.xblackbytesx.slopstream.core.playback.QualityCap
 import com.xblackbytesx.slopstream.core.playback.VideoCodec
+import com.xblackbytesx.slopstream.youtube.innertube.Innertube
+import com.xblackbytesx.slopstream.youtube.innertube.InnertubeResolver
+import com.xblackbytesx.slopstream.youtube.innertube.OwnExtractor
+import com.xblackbytesx.slopstream.youtube.innertube.ResolveReport
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -186,6 +190,8 @@ class YoutubeSmokeTest {
         plan as PlaybackPlan.Adaptive
         println("chosen: ${plan.chosen.label} itag=${plan.chosen.id} audio=${plan.audio.codecs}")
         println("options: " + plan.videoOptions.joinToString { it.label })
+        println("description: ${plan.details?.description?.length} chars, ${plan.details?.views} views")
+        assertTrue("the description arrives with the plan", plan.details?.description.orEmpty().isNotBlank())
         assertTrue(plan.chosen.lines >= 2160 && plan.chosen.codec == VideoCodec.VP9)
         assertNotNull(plan.video.dashManifest)
 
@@ -214,7 +220,20 @@ class YoutubeSmokeTest {
      * range; a stream looked up again by its id has a working URL.
      */
     @Test
-    fun downloadOfferServesWholeFilesInRanges() = runTest(timeout = 3.minutes) {
+    fun downloadOfferServesWholeFilesInRanges() = runTest(timeout = 3.minutes) { downloads(source) }
+
+    /** Decision 33: the same, from our own extractor, which must not have needed NewPipe. */
+    @Test
+    fun ownExtractorDownloadsTheSame() = runTest(timeout = 3.minutes) {
+        val reports = mutableListOf<ResolveReport>()
+        val own = OwnExtractor(InnertubeResolver(Innertube(client), client), enabled = { true }, onReport = { reports += it })
+        downloads(YoutubeSource(client, Locale.UK, own = own))
+        reports.forEach { println("  ${it.kind}: ${it.ownPath ?: it.ownError} in ${it.ownMs} ms") }
+        assertEquals(listOf("download", "download-renew"), reports.map { it.kind })
+        assertTrue("ours, not the fallback", reports.all { it.ownOk })
+    }
+
+    private suspend fun downloads(source: YoutubeSource) {
         val ladder = listOf(480, 720, 1080, 1440, 2160).associateWith { 60 }
         val shield = DeviceProfile(listOf(DecoderCaps(VideoCodec.VP9, true, ladder), DecoderCaps(VideoCodec.H264, true, ladder)), false, 2160, null, true)
         val offer = source.downloadOffer("LXb3EKWsInQ", shield, PlaybackPrefs(QualityCap.P1080))

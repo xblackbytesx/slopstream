@@ -19,6 +19,10 @@ import com.xblackbytesx.slopstream.core.playback.DeviceProfile
 import com.xblackbytesx.slopstream.core.playback.PlaybackPlan
 import com.xblackbytesx.slopstream.core.playback.PlaybackPrefs
 import com.xblackbytesx.slopstream.core.playback.StreamSelector
+import com.xblackbytesx.slopstream.youtube.innertube.InnertubeResolver
+import com.xblackbytesx.slopstream.youtube.innertube.OwnExtractor
+import com.xblackbytesx.slopstream.youtube.innertube.ResolveReport
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -57,6 +61,8 @@ class YoutubeSource(
     locale: Locale = Locale.getDefault(),
     poTokenProvider: PoTokenProvider? = null,
     private val rss: RssFeedFetcher = RssFeedFetcher(client),
+    /** The experimental extractor for playback and downloads (decisions 30, 33); NewPipe stays the fallback. */
+    private val own: OwnExtractor? = null,
 ) : ContentSource {
 
     private val service = ServiceList.YouTube
@@ -142,22 +148,74 @@ class YoutubeSource(
         }
     }
 
-    override suspend fun resolvePlayback(videoId: String, profile: DeviceProfile, prefs: PlaybackPrefs): PlaybackPlan = io {
-        val info = StreamInfo.getInfo(service, YoutubeIds.videoUrl(videoId))
-        streams.plan(info, profile, prefs)
-    }
+    override suspend fun resolvePlayback(videoId: String, profile: DeviceProfile, prefs: PlaybackPrefs): PlaybackPlan =
+        ownFirst(videoId, "play", PlaybackPlan::title, { it.resolve(videoId, profile, prefs).let { r -> Found(r.plan, r.path, r.steps) } }) {
+            io {
+                val info = StreamInfo.getInfo(service, YoutubeIds.videoUrl(videoId))
+                streams.plan(info, profile, prefs)
+            }
+        }
 
-    override suspend fun switchVideo(plan: PlaybackPlan.Adaptive, candidateId: String): PlaybackPlan.Adaptive = io {
-        val info = StreamInfo.getInfo(service, YoutubeIds.videoUrl(plan.videoId))
-        streams.switch(info, plan, candidateId)
-    }
+    override suspend fun switchVideo(plan: PlaybackPlan.Adaptive, candidateId: String): PlaybackPlan.Adaptive =
+        ownFirst(plan.videoId, "switch", PlaybackPlan::title, { it.switch(plan, candidateId).let { r -> Found(r.plan, r.path, r.steps) } }) {
+            io {
+                val info = StreamInfo.getInfo(service, YoutubeIds.videoUrl(plan.videoId))
+                streams.switch(info, plan, candidateId)
+            }
+        } as PlaybackPlan.Adaptive
 
-    override suspend fun downloadOffer(videoId: String, profile: DeviceProfile, prefs: PlaybackPrefs): DownloadOffer = io {
-        streams.downloadOffer(StreamInfo.getInfo(service, YoutubeIds.videoUrl(videoId)), profile, prefs)
-    }
+    /** Decision 33: ours first like a play, so a download is checked deep before it starts. */
+    override suspend fun downloadOffer(videoId: String, profile: DeviceProfile, prefs: PlaybackPrefs): DownloadOffer =
+        ownFirst(videoId, "download", DownloadOffer::title, { it.downloadOffer(videoId, profile, prefs).let { r -> Found(r.offer, r.path, r.steps) } }) {
+            io { streams.downloadOffer(StreamInfo.getInfo(service, YoutubeIds.videoUrl(videoId)), profile, prefs) }
+        }
 
-    override suspend fun downloadStream(videoId: String, streamId: String): DownloadStream = io {
-        streams.downloadStream(StreamInfo.getInfo(service, YoutubeIds.videoUrl(videoId)), streamId)
+    /** A download's URL renewed; stream ids are the same either way, so ours renews NewPipe's and back. */
+    override suspend fun downloadStream(videoId: String, streamId: String): DownloadStream =
+        ownFirst(videoId, "download-renew", { "" }, { it.downloadStream(videoId, streamId).let { r -> Found(r.stream, r.path, r.steps) } }) {
+            io { streams.downloadStream(StreamInfo.getInfo(service, YoutubeIds.videoUrl(videoId)), streamId) }
+        }
+
+    private class Found<T>(val value: T, val path: String, val steps: List<String>)
+
+    /**
+     * With the experimental extractor on, ours first; whatever it fails on, NewPipe does (the
+     * user's call: switching it on must never make anything worse). Every lookup is reported.
+     */
+    private suspend fun <T> ownFirst(
+        videoId: String,
+        kind: String,
+        title: (T) -> String,
+        ours: suspend (InnertubeResolver) -> Found<T>,
+        newpipe: suspend () -> T,
+    ): T {
+        val o = own?.takeIf { it.enabled() } ?: return newpipe()
+        val at = System.currentTimeMillis()
+        val start = System.nanoTime()
+        fun ms(from: Long) = (System.nanoTime() - from) / 1_000_000
+        val failure = try {
+            val r = ours(o.resolver)
+            o.onReport(ResolveReport(videoId, at, kind, ms(start), r.path, null, r.steps, title = title(r.value)))
+            return r.value
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e
+        }
+        val ownMs = ms(start)
+        val steps = (failure as? InnertubeResolver.Failed)?.steps.orEmpty()
+        val ownError = "${failure.javaClass.simpleName}: ${failure.message}"
+        val fallbackStart = System.nanoTime()
+        try {
+            val value = newpipe()
+            o.onReport(ResolveReport(videoId, at, kind, ownMs, null, ownError, steps, ms(fallbackStart), title = title(value)))
+            return value
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            o.onReport(ResolveReport(videoId, at, kind, ownMs, null, ownError, steps, ms(fallbackStart), e.message ?: e.javaClass.simpleName))
+            throw e
+        }
     }
 
     /**

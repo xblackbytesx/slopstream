@@ -2,6 +2,7 @@ package com.xblackbytesx.slopstream.youtube
 
 import com.xblackbytesx.slopstream.core.DownloadOffer
 import com.xblackbytesx.slopstream.core.DownloadStream
+import com.xblackbytesx.slopstream.core.HtmlText
 import com.xblackbytesx.slopstream.core.SourceUnavailableException
 import com.xblackbytesx.slopstream.core.VideoKind
 import com.xblackbytesx.slopstream.core.playback.AudioCandidate
@@ -14,12 +15,14 @@ import com.xblackbytesx.slopstream.core.playback.StreamSelector
 import com.xblackbytesx.slopstream.core.playback.Track
 import com.xblackbytesx.slopstream.core.playback.VideoCandidate
 import com.xblackbytesx.slopstream.core.playback.VideoCodec
+import com.xblackbytesx.slopstream.core.playback.VideoDetails
 import org.schabi.newpipe.extractor.services.youtube.dashmanifestcreators.YoutubeOtfDashManifestCreator
 import org.schabi.newpipe.extractor.services.youtube.dashmanifestcreators.YoutubePostLiveStreamDvrDashManifestCreator
 import org.schabi.newpipe.extractor.services.youtube.dashmanifestcreators.YoutubeProgressiveDashManifestCreator
 import org.schabi.newpipe.extractor.stream.AudioStream
 import org.schabi.newpipe.extractor.stream.AudioTrackType
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
+import org.schabi.newpipe.extractor.stream.Description
 import org.schabi.newpipe.extractor.stream.Stream
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamType
@@ -53,6 +56,7 @@ internal class StreamPlanner {
                 audio = track(info, audioStream),
                 chosen = chosen,
                 videoOptions = options,
+                details = details(info),
             )
         }
 
@@ -61,7 +65,7 @@ internal class StreamPlanner {
             .filter { !it.isVideoOnly() && it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
             .maxByOrNull { it.height }
             ?: throw SourceUnavailableException("No playable stream for ${info.id}")
-        return PlaybackPlan.Progressive(info.id, info.name, info.duration, muxed.content)
+        return PlaybackPlan.Progressive(info.id, info.name, info.duration, muxed.content, details(info))
     }
 
     fun switch(info: StreamInfo, plan: PlaybackPlan.Adaptive, candidateId: String): PlaybackPlan.Adaptive {
@@ -101,6 +105,7 @@ internal class StreamPlanner {
             thumbnailUrl = YoutubeIds.thumbnailFor(info.id, VideoKind.VIDEO),
             videos = options.map { c -> download(info, videos.getValue(c), c) },
             audio = download(info, audio, null),
+            details = details(info),
         )
     }
 
@@ -137,7 +142,18 @@ internal class StreamPlanner {
             info.dashMpdUrl.isNotEmpty() -> info.dashMpdUrl to ManifestType.DASH
             else -> throw SourceUnavailableException("This livestream has no playable manifest")
         }
-        return PlaybackPlan.Manifest(info.id, info.name, info.duration, url, type, live = true)
+        return PlaybackPlan.Manifest(info.id, info.name, info.duration, url, type, live = true, details = details(info))
+    }
+
+    /** NewPipe hands YouTube's description over as HTML (links as anchors); shown as plain text. */
+    private fun details(info: StreamInfo): VideoDetails {
+        val d = info.description
+        val text = when (d?.type) {
+            null -> ""
+            Description.HTML -> HtmlText.plain(d.content.orEmpty())
+            else -> d.content.orEmpty().trim()
+        }
+        return VideoDetails(text, info.viewCount.takeIf { it >= 0 })
     }
 
     private fun adaptiveVideos(info: StreamInfo): Map<VideoCandidate, VideoStream> =

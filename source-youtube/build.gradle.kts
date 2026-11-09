@@ -19,7 +19,26 @@ dependencies {
 
 // Offline tests only; the live checks against YouTube run with `make smoke`.
 tasks.test {
-    exclude("**/*SmokeTest*")
+    exclude("**/*SmokeTest*", "**/bench/**")
+}
+
+tasks.register<Test>("bench") {
+    description = "Playback benchmark: resolves a corpus of live videos and probes the streams (build/bench/)."
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    include("**/bench/**")
+    // -PbenchResolvers=newpipe,own runs only those.
+    project.findProperty("benchResolvers")?.let { systemProperty("bench.resolvers", it.toString()) }
+    project.findProperty("benchChannel")?.let { systemProperty("bench.channel", it.toString()) }
+    project.findProperty("benchRounds")?.let { systemProperty("bench.rounds", it.toString()) }
+    systemProperty("bench.out", layout.buildDirectory.dir("bench").get().asFile.path)
+    outputs.upToDateWhen { false }
+    testLogging {
+        events("failed", "standardOut", "standardError")
+        showStandardStreams = true
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
 }
 
 tasks.register<Test>("smokeTest") {

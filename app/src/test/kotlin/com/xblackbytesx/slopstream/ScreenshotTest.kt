@@ -28,6 +28,8 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.graphics.Color
 import com.xblackbytesx.slopstream.ui.screensaver.BouncingLogo
+import com.xblackbytesx.slopstream.ui.settings.ExtractorLogContent
+import com.xblackbytesx.slopstream.youtube.innertube.ResolveReport
 import kotlin.random.Random
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import com.xblackbytesx.slopstream.core.Channel
@@ -139,6 +141,21 @@ class ScreenshotTest {
         }
     }
 
+    /** Decision 30: ours, a rescue, a fallback and a miss, one opened. */
+    @Test @Config(qualifiers = TV)
+    fun tvExtractorLog() = shot("tv-extractor-log", isTv = true) {
+        val now = 1_794_130_000_000L
+        Box(Modifier.fillMaxSize().background(com.xblackbytesx.slopstream.ui.theme.Palette.Background)) { ExtractorLogContent(
+            listOf(
+                ResolveReport("k8W0Eb7sKss", now, "play", 276, "dash", null, listOf("62ms player OK", "276ms deep check video 200 audio 200"), title = "ONE PHONE TO RULE THEM ALL"),
+                ResolveReport("B09GJ5ynuKg", now - 60_000, "play", 690, "dash-new-visitor", null, emptyList(), title = "The REAL TRUTH about Electric Truck Tires"),
+                ResolveReport("abcdefghijk", now - 120_000, "play", 410, null, "Failed: an ended stream still processing (DVR): not handled yet", emptyList(), 1240, null, "Yesterday's livestream"),
+                ResolveReport("aaaaaaaaaaa", now - 180_000, "play", 54, null, "SourceUnavailableException: This video is unavailable", emptyList(), 70, "This video is unavailable"),
+            ),
+            onClear = {},
+        ) }
+    }
+
     /** Decision 29: mid-screen, and in the top-left corner at the moment it hits. */
     @Test @Config(qualifiers = TV)
     fun tvScreensaver() = shot("tv-screensaver", isTv = true) {
@@ -176,6 +193,33 @@ class ScreenshotTest {
         override fun toggleSubscribe(c: Channel) = Unit
     }
 
+    /** An empty field: the earlier searches, the newest first, one also searched YouTube. */
+    @Composable
+    private fun SearchRecent() {
+        val recent = listOf(
+            com.xblackbytesx.slopstream.data.PastSearch("yt", "pixel 10 durability", global = true),
+            com.xblackbytesx.slopstream.data.PastSearch("yt", "jerryrig"),
+            com.xblackbytesx.slopstream.data.PastSearch("yt", "linus"),
+            com.xblackbytesx.slopstream.data.PastSearch("yt", "shield tv pro"),
+            com.xblackbytesx.slopstream.data.PastSearch("yt", "techlinked"),
+        )
+        val state = SearchState(suggestions = recent)
+        AppChrome(current = 0, onSelect = {}) { modifier ->
+            Column(modifier) {
+                ScreenHeader("Search", status = "Your channels and the videos in your feeds")
+                SearchBar(state.query, state.global, {}, {}, {})
+                com.xblackbytesx.slopstream.ui.search.RecentSearches(state.suggestions, state.query, typing = false, onRun = {}, onMenu = {})
+                SearchResults(state, searchNoop)
+            }
+        }
+    }
+
+    @Test @Config(qualifiers = TV)
+    fun tvSearchRecent() = shot("tv-search-recent", isTv = true) { SearchRecent() }
+
+    @Test @Config(qualifiers = PHONE)
+    fun phoneSearchRecent() = shot("phone-search-recent", isTv = false) { SearchRecent() }
+
     @Composable
     private fun Search() {
         val state = SearchState(
@@ -194,6 +238,9 @@ class ScreenshotTest {
             Column(modifier) {
                 ScreenHeader("Search", status = "Your channels and the videos in your feeds, plus all of YouTube")
                 SearchBar(state.query, state.global, {}, {}, {})
+                com.xblackbytesx.slopstream.ui.search.RecentSearches(
+                    listOf(com.xblackbytesx.slopstream.data.PastSearch("yt", "techlinked")), state.query, typing = true, onRun = {}, onMenu = {},
+                )
                 SearchResults(state, searchNoop)
             }
         }
@@ -309,4 +356,46 @@ class ScreenshotTest {
             )
         }
     }
+
+    /** The player's side panel, Description tab, over a stand-in for the video. */
+    @Composable
+    private fun DescriptionPanel(isTv: Boolean, withComments: Boolean) {
+        val text = """
+            I bent it until it broke, so you don't have to. Full teardown and the parts list below.
+
+            0:00 Intro
+            1:45 Scratch test
+            4:12 - Bend test
+            Teardown | 9:30
+
+            Parts: https://example.com/parts-list
+            My tools: https://example.com/tools
+        """.trimIndent()
+        androidx.compose.foundation.layout.Box(
+            androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFF30343C)),
+        ) {
+            com.xblackbytesx.slopstream.ui.player.VideoPanelContent(
+                tab = com.xblackbytesx.slopstream.ui.player.PanelTab.DESCRIPTION,
+                onTab = {},
+                header = com.xblackbytesx.slopstream.ui.player.PanelHeader(
+                    "Is the new phone made of glass? Durability test", "JerryRigEverything · 3 days ago · 1.2M views",
+                ),
+                description = com.xblackbytesx.slopstream.ui.player.DescriptionText.lines(text, durationSec = 720),
+                comments = if (withComments) com.xblackbytesx.slopstream.ui.comments.CommentsState() else null,
+                onMoreComments = {}, onReplies = {}, onMoreReplies = {},
+                isTv = isTv,
+                onSeek = {},
+                onClose = {},
+                modifier = androidx.compose.ui.Modifier.align(
+                    if (isTv) androidx.compose.ui.Alignment.CenterEnd else androidx.compose.ui.Alignment.BottomCenter,
+                ),
+            )
+        }
+    }
+
+    @Test @Config(qualifiers = TV)
+    fun tvDescription() = shot("tv-description", isTv = true) { DescriptionPanel(isTv = true, withComments = true) }
+
+    @Test @Config(qualifiers = PHONE)
+    fun phoneDescription() = shot("phone-description", isTv = false) { DescriptionPanel(isTv = false, withComments = false) }
 }

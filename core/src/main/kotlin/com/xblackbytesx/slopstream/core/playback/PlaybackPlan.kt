@@ -9,6 +9,9 @@ sealed interface PlaybackPlan {
     val title: String
     val durationSec: Long
 
+    /** What the creator wrote about it, when the service sent it with the streams. */
+    val details: VideoDetails?
+
     /** Separate video and audio tracks, merged at playback. */
     data class Adaptive(
         override val videoId: String,
@@ -20,6 +23,7 @@ sealed interface PlaybackPlan {
         val chosen: VideoCandidate,
         /** Every choice the device decodes, best first, for the in-player quality menu. */
         val videoOptions: List<VideoCandidate>,
+        override val details: VideoDetails? = null,
     ) : PlaybackPlan
 
     /**
@@ -48,6 +52,7 @@ sealed interface PlaybackPlan {
          * a Sauce+ member.
          */
         val hostRewrites: Map<String, String> = emptyMap(),
+        override val details: VideoDetails? = null,
     ) : PlaybackPlan {
         fun withVariant(candidateId: String): Manifest {
             val v = variants.firstOrNull { it.candidate.id == candidateId } ?: return this
@@ -72,6 +77,8 @@ sealed interface PlaybackPlan {
         val channelName: String = "",
         /** The saved thumbnail, for the player and the media notification. */
         val artworkPath: String? = null,
+        /** Saved with the download, so it reads offline. */
+        override val details: VideoDetails? = null,
     ) : PlaybackPlan {
         val audioOnly: Boolean get() = videoPath == null
     }
@@ -82,8 +89,20 @@ sealed interface PlaybackPlan {
         override val title: String,
         override val durationSec: Long,
         val url: String,
+        override val details: VideoDetails? = null,
     ) : PlaybackPlan
 }
+
+/**
+ * The creator's own words about a video, shown in the player's Description tab. Arrives with
+ * the playback response (no request of its own) and goes with the plan.
+ */
+data class VideoDetails(
+    /** Plain text: paragraphs as blank lines, links as their URL. */
+    val description: String,
+    /** Null when the service does not say. */
+    val views: Long? = null,
+)
 
 enum class ManifestType { HLS, DASH }
 

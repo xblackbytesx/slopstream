@@ -90,6 +90,7 @@ import com.xblackbytesx.slopstream.ui.player.ShortsPlayerScreen
 import com.xblackbytesx.slopstream.ui.search.SearchNav
 import com.xblackbytesx.slopstream.ui.search.SearchScreen
 import com.xblackbytesx.slopstream.ui.settings.DeviceCheckScreen
+import com.xblackbytesx.slopstream.ui.settings.ExtractorLogScreen
 import com.xblackbytesx.slopstream.ui.settings.SettingsScreen
 import com.xblackbytesx.slopstream.ui.settings.SyncConnectScreen
 import com.xblackbytesx.slopstream.ui.subscriptions.AddChannelScreen
@@ -223,8 +224,10 @@ fun AppNav(
                     runDeviceCheck = { nav.navigate(DeviceCheckRoute(firstRun = false)) },
                     signIn = signIn,
                     connectSync = { nav.navigate(SyncConnectRoute) },
+                    openExtractorLog = { nav.navigate(ExtractorLogRoute) },
                 )
             }
+            composable<ExtractorLogRoute> { ExtractorLogScreen() }
             composable<SignInRoute> { SignInScreen(onDone = { nav.popBackStack() }) }
             composable<SyncConnectRoute> { SyncConnectScreen(onDone = { nav.popBackStack() }) }
             composable<AddChannelRoute> { AddChannelScreen() }
